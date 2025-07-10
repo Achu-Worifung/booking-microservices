@@ -19,3 +19,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 ) 
+
+
+Redis (short for REmote DIctionary Server) is an in-memory database, cache, and message broker.
+It's super fast and often used to store temporary data like:
+
+API rate limits
+
+Session data
+
+Caches for database queries
+
+Background task queues
+
+Real-time counters

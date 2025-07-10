@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Literal, Dict, Optional
 import uuid
@@ -6,7 +6,12 @@ import datetime
 import random
 import uvicorn
 
+#------------------for rate limiting and caching-------------------
+from fastapi_limiter.depends import RateLimiter
+from fastapi_limiter import FastAPILimiter
+import aioredis
 
+JWT_SECRET = "super-secret" #secret key for JWT encoding/decoding (get it from env)
 app = FastAPI(
     title="Infosys | Booking: Car Micro Service",
     description="A microservice to obtain the list of available cars at a specific location and date.",
@@ -148,6 +153,26 @@ class Car(BaseModel):
     available: bool = True
     rating: float = Field(default=0.0, ge=0.0, le=5.0, description="Rating of the car from 0 to 5")
 
+async def get_api_key(authorization: Optional[str] = Header(None)):
+    """
+    Dependency to get the API key from the Authorization header.
+    """
+    if authorization is None:
+        raise HTTPException(status_code=401, detail="API key is missing")
+    
+    # Extract the API key from "Bearer <api_key>" format
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid authorization format. Use 'Bearer <api_key>'")
+    
+    api_key = authorization.replace("Bearer ", "")
+    
+    # In a real application, you would validate the API key against a database
+    # For demo purposes, we'll accept any non-empty key
+    if not api_key or api_key.strip() == "":
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    
+    return api_key
+
 @app.get('/')
 async def root():
     """
@@ -156,75 +181,104 @@ async def root():
     return {"message": "Welcome to the car availability microservice!"}
 
 @app.get('/cars', response_model=List[Car])
-async def get_cars():
+async def get_cars(user = Depends(get_api_key),
+                  limit: Depends = Depends(RateLimiter(times=10, seconds=60))):
     """
     Get a list of all available cars.
     """
-    available_cars: List[Car] = []
-    
-    # Get all car types and their templates
-    for car_type, car_templates in all_cars.items():
-        # Select a few cars from each type
-        selected_templates = random.sample(car_templates, min(3, len(car_templates)))
+    if user:
+        available_cars: List[Car] = []
         
-        for template in selected_templates:
-            # Pick a random model from the template
-            selected_model = random.choice(template.model)
-            get_feature = random.sample(list_of_feautures, k=4)
+        # Get all car types and their templates
+        for car_type, car_templates in all_cars.items():
+            # Select a few cars from each type
+            selected_templates = random.sample(car_templates, min(3, len(car_templates)))
             
-            available_cars.append(Car(
-                id=str(uuid.uuid4()),
-                make=template.make,
-                model=selected_model,
-                year=random.randint(2018, 2024),
-                color=random.sample(['Red', 'Blue', 'Black', 'White', 'Silver', 'Green', 'Gray', 'Yellow'], k=random.randint(1, 3)),
-                seat=getSeatCount(car_type),
-                type=car_type,
-                price_per_day=getDailPrice(car_type),
-                feature='• '.join(get_feature),
-                transmission=random.choice(['Automatic', 'Manual']),
-                fuel_type=getFuelType(car_type),
-                rating=round(random.uniform(3.5, 5.0), 1)
-            ))
-    
-    # Shuffle and limit to reasonable number
-    random.shuffle(available_cars)
-    return available_cars[:20]
+            for template in selected_templates:
+                # Pick a random model from the template
+                selected_model = random.choice(template.model)
+                get_feature = random.sample(list_of_feautures, k=4)
+                
+                available_cars.append(Car(
+                    id=str(uuid.uuid4()),
+                    make=template.make,
+                    model=selected_model,
+                    year=random.randint(2018, 2024),
+                    color=random.sample(['Red', 'Blue', 'Black', 'White', 'Silver', 'Green', 'Gray', 'Yellow'], k=random.randint(1, 3)),
+                    seat=getSeatCount(car_type),
+                    type=car_type,
+                    price_per_day=getDailPrice(car_type),
+                    feature='• '.join(get_feature),
+                    transmission=random.choice(['Automatic', 'Manual']),
+                    fuel_type=getFuelType(car_type),
+                    rating=round(random.uniform(3.5, 5.0), 1)
+                ))
+        
+        # Shuffle and limit to reasonable number
+        random.shuffle(available_cars)
+        return available_cars[:20]
 
 @app.get('/cars/{car_type}', response_model=List[Car])
-async def get_cars_by_type(car_type: str):
+async def get_cars_by_type(car_type: str,
+                          user = Depends(get_api_key),
+                          limit: Depends = Depends(RateLimiter(times=15, seconds=60))):
     """
     Get a list of cars of a specific type.
     """
     if car_type not in all_cars:
         raise HTTPException(status_code=404, detail=f"Car type '{car_type}' not found")
     
-    available_cars: List[Car] = []
-    car_templates = all_cars[car_type]
-    
-    for template in car_templates:
-        # Create multiple cars for each template with different models
-        for model in template.model[:3]:  # Limit to first 3 models per make
-            get_feature = random.sample(list_of_feautures, k=4)
-            
-            available_cars.append(Car(
-                id=str(uuid.uuid4()),
-                make=template.make,
-                model=model,
-                year=random.randint(2018, 2024),
-                color=random.sample(['Red', 'Blue', 'Black', 'White', 'Silver', 'Green', 'Gray', 'Yellow'], k=random.randint(1, 3)),
-                seat=getSeatCount(car_type),
-                type=car_type,
-                price_per_day=getDailPrice(car_type),
-                feature='• '.join(get_feature),
-                transmission=random.choice(['Automatic', 'Manual']),
-                fuel_type=getFuelType(car_type),
-                rating=round(random.uniform(3.5, 5.0), 1)
-            ))
-    
-    random.shuffle(available_cars)
-    return available_cars
+    if user:
+        available_cars: List[Car] = []
+        car_templates = all_cars[car_type]
+        
+        for template in car_templates:
+            # Create multiple cars for each template with different models
+            for model in template.model[:3]:  # Limit to first 3 models per make
+                get_feature = random.sample(list_of_feautures, k=4)
+                
+                available_cars.append(Car(
+                    id=str(uuid.uuid4()),
+                    make=template.make,
+                    model=model,
+                    year=random.randint(2018, 2024),
+                    color=random.sample(['Red', 'Blue', 'Black', 'White', 'Silver', 'Green', 'Gray', 'Yellow'], k=random.randint(1, 3)),
+                    seat=getSeatCount(car_type),
+                    type=car_type,
+                    price_per_day=getDailPrice(car_type),
+                    feature='• '.join(get_feature),
+                    transmission=random.choice(['Automatic', 'Manual']),
+                    fuel_type=getFuelType(car_type),
+                    rating=round(random.uniform(3.5, 5.0), 1)
+                ))
+        
+        random.shuffle(available_cars)
+        return available_cars
 
+@app.get('/car-types', response_model=List[str])
+async def get_car_types(user = Depends(get_api_key),
+                       limit: Depends = Depends(RateLimiter(times=20, seconds=60))):
+    """
+    Get a list of all available car types.
+    """
+    if user:
+        return list(all_cars.keys())
+
+@app.get('/health')
+async def health_check():
+    """
+    Health check endpoint for monitoring.
+    """
+    return {"status": "healthy", "service": "car-microservice", "version": "1.0.0"}
+
+#runs on the app startup to initialize the rate limiter
+@app.on_event("startup")
+async def startup():
+    """
+    Initialize the FastAPI Limiter with Redis.
+    """
+    redis = aioredis.from_url("redis://localhost:6379", decode_responses=True, encoding ="utf-8")
+    await FastAPILimiter.init(redis)
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
