@@ -1,0 +1,23 @@
+version: "3.9"
+
+services:
+  car-service:
+    build:
+      context: ./car-service
+    container_name: car-service
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+    environment:
+      - REDIS_URL=redis://redis:6379
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./car-service:/app
+    working_dir: /app
+
+  redis:
+    image: redis:7
+    container_name: redis
+    ports:
+      - "6379:6379"
