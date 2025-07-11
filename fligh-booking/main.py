@@ -7,6 +7,7 @@ import jwt
 import os
 import psycopg2
 from dotenv import load_dotenv
+from contextlib import contextmanager
 import json
 
 
@@ -15,22 +16,73 @@ load_dotenv() #loading env variables
 SECRET_KEY = os.getenv("JWT_SECRET") or "super-secret"
 ALGORITHM = os.getenv("JWT_ALGORITHM") or "HS256"
 
-# Database connection
-try:
-    conn = psycopg2.connect(
-        user=os.getenv("user"),
-        host=os.getenv("host"),
-        database=os.getenv("database"),
-        password=os.getenv("password"),
-        port=os.getenv("port")
-    )
-    cursor = conn.cursor()
-    print("Database connection successful")
-    cursor.execute("""SELECT * FROM flightbookings""")
-    print(cursor.fetchall())
-except Exception as e:
-    print(f"Database connection failed: {e}")
-    raise
+# Database connection configuration
+DB_CONFIG = {
+    "user": os.getenv("user"),
+    "host": os.getenv("host"),
+    "database": os.getenv("database"),
+    "password": os.getenv("password"),
+    "port": os.getenv("port")
+}
+
+def get_db_connection():
+    """
+    Create and return a new database connection.
+    """
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        return conn
+    except Exception as e:
+        print(f"Database connection failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database connection failed"
+        )
+
+@contextmanager
+def get_db_cursor():
+    """
+    Context manager for database operations.
+    Automatically handles connection and cursor lifecycle.
+    """
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        yield cursor, conn
+        conn.commit()
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        raise
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+def test_db_connection():
+    """
+    Test database connection on startup.
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1")
+        cursor.fetchone()
+        cursor.close()
+        conn.close()
+        print("Database connection test successful")
+        return True
+    except Exception as e:
+        print(f"Database connection test failed: {e}")
+        return False
+
+# Test database connection on startup
+if not test_db_connection():
+    print("Warning: Database connection failed. Service may not work properly.")
+    # You can choose to exit here if DB is critical: sys.exit(1)
     
     
 #fastapi  app
@@ -164,9 +216,10 @@ async def book_flight(
     
     Returns booking confirmation with user and flight details.
     """
+    conn = None
+    cursor = None
+    
     try:
-
-        
         # Create user object from token data
         user = User(
             user_id=current_user["user_id"],
@@ -174,6 +227,10 @@ async def book_flight(
             fname=current_user["fname"],
             lname=current_user["lname"]
         )
+        
+        # Get database connection
+        conn = get_db_connection()
+        cursor = conn.cursor()
         
         # Save the booking to database
         try:
@@ -226,7 +283,8 @@ async def book_flight(
             conn.commit()
             
         except Exception as db_error:
-            conn.rollback()
+            if conn:
+                conn.rollback()
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Database error: {str(db_error)}"
@@ -240,11 +298,19 @@ async def book_flight(
             booking_timestamp=datetime.datetime.now()
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Booking failed: {str(e)}"
         )
+    finally:
+        # Always close database connections
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 @app.get("/flights/booking/{flightid}")
 async def get_user_booking(
@@ -258,7 +324,14 @@ async def get_user_booking(
     Path parameter:
         flightid: The flight booking ID
     """
+    conn = None
+    cursor = None
+    
     try:
+        # Get database connection
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
         # Fetch bookings from database
         cursor.execute("""
             SELECT 
@@ -291,6 +364,12 @@ async def get_user_booking(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve booking: {str(e)}"
         )
+    finally:
+        # Always close database connections
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
         
 @app.delete("/flights/delete")
 async def delete_user_booking(
@@ -306,7 +385,14 @@ async def delete_user_booking(
         "flightid": "12345678-1234-1234-1234-123456789012"
     }
     """
+    conn = None
+    cursor = None
+    
     try:
+        # Get database connection
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
         # First check if the booking exists and belongs to the user
         cursor.execute("""
             SELECT flightbookingid FROM flightbookings
@@ -341,11 +427,18 @@ async def delete_user_booking(
     except HTTPException:
         raise
     except Exception as e:
-        conn.rollback()
+        if conn:
+            conn.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete booking: {str(e)}"
         )
+    finally:
+        # Always close database connections
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 # @app.get("/flights/bookings")
 # async def get_all_user_bookings(current_user: dict = Depends(get_current_user)):
