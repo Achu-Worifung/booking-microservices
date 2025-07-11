@@ -7,6 +7,9 @@ import datetime
 import random
 import json
 
+import uvicorn
+
+
 # Initialize FastAPI application
 app = FastAPI(
     title="Fake Flight Generator Microservice",
@@ -169,7 +172,7 @@ def generate_fake_flights(departure_date_str: str, count: int = 5) -> List[Fligh
 
 # --- API Endpoints ---
 
-@app.get("/flights/generate", response_model=List[Flight])
+@app.get("/flights", response_model=List[Flight])
 async def generate_flights_endpoint(
     departure_date: str = Query(..., description="The desired departure date in YYYY-MM-DD format."),
     count: int = Query(5, ge=1, le=20, description="The number of fake flights to generate (1-20).")
@@ -190,3 +193,6 @@ async def root():
         "documentation_url": "/docs",
         "generate_flights_example": "/flights/generate?departure_date=2025-09-01&count=5"
     }
+
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
