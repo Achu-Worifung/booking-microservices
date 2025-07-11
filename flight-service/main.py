@@ -13,7 +13,7 @@ import uvicorn
 # Initialize FastAPI application
 app = FastAPI(
     title="Fake Flight Generator Microservice",
-    description="A microservice to generate simulated flight data based on provided JavaScript logic.",
+    description="A microservice to obtain  flight data based on provided JavaScript logic.",
     version="1.0.0",
 )
 
