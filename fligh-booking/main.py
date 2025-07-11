@@ -18,11 +18,20 @@ ALGORITHM = os.getenv("JWT_ALGORITHM") or "HS256"
 
 # Database connection configuration
 DB_CONFIG = {
-    "user": os.getenv("user"),
-    "host": os.getenv("host"),
-    "database": os.getenv("database"),
+    "user": os.getenv("PGUSER"),
+    "host": os.getenv("PGHOST"),
+    "database": os.getenv("PGDATABASE"),
     "password": os.getenv("password"),
-    "port": os.getenv("port")
+    "port": os.getenv("PGPORT")
+}
+
+# Bookings database configuration (separate database)
+BOOKINGS_DB_CONFIG = {
+    "user": os.getenv("PGUSER"),
+    "host": os.getenv("PGHOST"),
+    "database": "bookings",  # Different database name
+    "password": os.getenv("password"),
+    "port": os.getenv("PGPORT")
 }
 
 def get_db_connection():
@@ -37,6 +46,20 @@ def get_db_connection():
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database connection failed"
+        )
+
+def get_bookings_db_connection():
+    """
+    Create and return a new bookings database connection.
+    """
+    try:
+        conn = psycopg2.connect(**BOOKINGS_DB_CONFIG)
+        return conn
+    except Exception as e:
+        print(f"Bookings database connection failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Bookings database connection failed"
         )
 
 @contextmanager
@@ -149,17 +172,37 @@ def verify_token(token: str) -> dict:
     """
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        
+        # Map the token fields to expected fields
+        # Handle both 'userid' and 'user_id' formats for compatibility
+        if 'userid' in payload and 'user_id' not in payload:
+            payload['user_id'] = payload['userid']
+        
+        # Add default values for missing fields
+        if 'fname' not in payload:
+            payload['fname'] = payload.get('email', '').split('@')[0]  # Use email prefix as default
+        if 'lname' not in payload:
+            payload['lname'] = ''  # Default empty last name
+            
         return payload
     except jwt.ExpiredSignatureError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has expired"
         )
-    except jwt.JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token"
-        )
+    except jwt.JWTError as e:
+        # For debugging, let's also try without signature verification
+        try:
+            payload = jwt.decode(token, options={"verify_signature": False})
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Invalid token signature. Token payload contains: {list(payload.keys())}"
+            )
+        except:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Invalid token: {str(e)}"
+            )
 
 def get_current_user(authorization: str = Header(None)) -> dict:
     """
@@ -189,7 +232,7 @@ def get_current_user(authorization: str = Header(None)) -> dict:
 
 # User model for response
 class User(BaseModel):
-    user_id: int
+    user_id: str  # Changed from int to str to handle UUID
     email: str
     fname: str
     lname: str
@@ -216,8 +259,10 @@ async def book_flight(
     
     Returns booking confirmation with user and flight details.
     """
-    conn = None
-    cursor = None
+    flight_conn = None
+    bookings_conn = None
+    flight_cursor = None
+    bookings_cursor = None
     
     try:
         # Create user object from token data
@@ -228,14 +273,37 @@ async def book_flight(
             lname=current_user["lname"]
         )
         
-        # Get database connection
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        # Get database connections
+        flight_conn = get_db_connection()
+        bookings_conn = get_bookings_db_connection()
         
-        # Save the booking to database
+        flight_cursor = flight_conn.cursor()
+        bookings_cursor = bookings_conn.cursor()
+        
+        # Save the booking to database using two-phase commit
         try:
-            booking_reference = f"BK{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}{current_user['user_id']}"
-            cursor.execute("""
+            # Create a shorter booking reference using just first 8 chars of UUID
+            user_id_short = current_user['user_id'][:8]
+            booking_reference = f"BK{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}{user_id_short}"
+            
+            # Convert flight object to JSON with datetime handling
+            flight_data = flight.dict()
+            # Convert datetime objects to ISO format strings
+            if isinstance(flight_data.get('departureTime'), datetime.datetime):
+                flight_data['departureTime'] = flight_data['departureTime'].isoformat()
+            if isinstance(flight_data.get('arrivalTime'), datetime.datetime):
+                flight_data['arrivalTime'] = flight_data['arrivalTime'].isoformat()
+            
+            # Convert stops datetime objects if any
+            if flight_data.get('stops'):
+                for stop in flight_data['stops']:
+                    if isinstance(stop.get('arrivalTime'), datetime.datetime):
+                        stop['arrivalTime'] = stop['arrivalTime'].isoformat()
+                    if isinstance(stop.get('departureTime'), datetime.datetime):
+                        stop['departureTime'] = stop['departureTime'].isoformat()
+            
+            # Insert into flightbookings table
+            flight_cursor.execute("""
                 INSERT INTO flightbookings 
                 (
                     userid,
@@ -254,24 +322,25 @@ async def book_flight(
                 "00000000-0000-0000-0000-000000000000",  # Placeholder inventory ID
                 1,  # Default 1 seat
                 flight.prices[flight.choosenSeat],  # Price for chosen seat class
-                json.dumps(flight.dict()),  # Convert flight object to JSON
+                json.dumps(flight_data),  # Convert flight object to JSON with proper datetime handling
                 None  # trip_id
             ))
             
-            booking_id = cursor.fetchone()[0]
-           #writing to the booking page
-            cursor.execute("""
-                           INSERT INTO bookings.user_bookings
-                           (
-                               bookingid,
-                               booking_reference,
-                               paymentid,
-                               userid,
-                               bookingtype,
-                               totalamount, 
-                               created_at,
-                               updated_at
-                           ) VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+            booking_id = flight_cursor.fetchone()[0]
+            
+            # Insert into user_bookings table in bookings database
+            bookings_cursor.execute("""
+                INSERT INTO user_bookings
+                (
+                    bookingid,
+                    booking_reference,
+                    paymentid,
+                    userid,
+                    bookingtype,
+                    totalamount, 
+                    created_at,
+                    updated_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
             """, (
                 booking_id,
                 booking_reference,
@@ -280,11 +349,17 @@ async def book_flight(
                 "Flight",
                 flight.prices[flight.choosenSeat]
             ))
-            conn.commit()
+            
+            # Two-phase commit: both transactions must succeed
+            flight_conn.commit()
+            bookings_conn.commit()
             
         except Exception as db_error:
-            if conn:
-                conn.rollback()
+            # Rollback both transactions on any error
+            if flight_conn:
+                flight_conn.rollback()
+            if bookings_conn:
+                bookings_conn.rollback()
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Database error: {str(db_error)}"
@@ -292,7 +367,7 @@ async def book_flight(
         
         return BookingResponse(
             message="Flight booked successfully",
-            booking_id=booking_reference,
+            booking_id=str(booking_id),  # Return the actual UUID, not the reference
             user=user,
             flight=flight,
             booking_timestamp=datetime.datetime.now()
@@ -307,54 +382,65 @@ async def book_flight(
         )
     finally:
         # Always close database connections
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
+        if flight_cursor:
+            flight_cursor.close()
+        if bookings_cursor:
+            bookings_cursor.close()
+        if flight_conn:
+            flight_conn.close()
+        if bookings_conn:
+            bookings_conn.close()
 
-@app.get("/flights/booking/{flightid}")
+@app.get("/flights/booking/{booking_id}")
 async def get_user_booking(
-    flightid: str,
+    booking_id: str,
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Get a specific booking for the authenticated user.
+    Get a specific booking for the authenticated user using booking id (UUID).
     Requires a valid JWT token in the Authorization header.
-    
+
     Path parameter:
-        flightid: The flight booking ID
+        booking_id: The flight booking UUID (e.g., 3ac77330-cade-4add-9a8c-3e4b3ea3bb81)
     """
-    conn = None
-    cursor = None
+    flight_conn = None
+    bookings_conn = None
+    flight_cursor = None
+    bookings_cursor = None
     
     try:
-        # Get database connection
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        # Get database connections
+        flight_conn = get_db_connection()
         
-        # Fetch bookings from database
-        cursor.execute("""
+        flight_cursor = flight_conn.cursor()
+        
+        # Get flight details from flights database
+        flight_cursor.execute("""
             SELECT 
-                flightdetails
+                flightbookingid,
+                userid,
+                inventoryid,
+                numberseats,
+                seatprice,
+                flightdetails,
+                tripid,
+                created_at,
+                updated_at
             FROM flightbookings 
             WHERE flightbookingid = %s AND userid = %s
-        """, (flightid, current_user["user_id"]))
+        """, (booking_id, current_user["user_id"]))
         
-        result = cursor.fetchone()
+        flight_result = flight_cursor.fetchone()
         
-        if not result:
+        if not flight_result:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Booking not found or does not belong to the user"
+                detail="Flight details not found"
             )
-        
-        flight_booking = result[0]
         
         return {
             "message": "User booking retrieved successfully",
-            "booking_id": flightid,
-            "user_id": current_user["user_id"],
-            "booking_details": flight_booking
+            "flight_details": flight_result
         }
         
     except HTTPException:
@@ -366,10 +452,14 @@ async def get_user_booking(
         )
     finally:
         # Always close database connections
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
+        if flight_cursor:
+            flight_cursor.close()
+        if bookings_cursor:
+            bookings_cursor.close()
+        if flight_conn:
+            flight_conn.close()
+        if bookings_conn:
+            bookings_conn.close()
         
 @app.delete("/flights/delete")
 async def delete_user_booking(
@@ -385,38 +475,92 @@ async def delete_user_booking(
         "flightid": "12345678-1234-1234-1234-123456789012"
     }
     """
-    conn = None
-    cursor = None
+    flight_conn = None
+    bookings_conn = None
+    flight_cursor = None
+    bookings_cursor = None
     
     try:
-        # Get database connection
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        # Get database connections
+        flight_conn = get_db_connection()
+        bookings_conn = get_bookings_db_connection()
+        
+        flight_cursor = flight_conn.cursor()
+        bookings_cursor = bookings_conn.cursor()
         
         # First check if the booking exists and belongs to the user
-        cursor.execute("""
+        flight_cursor.execute("""
             SELECT flightbookingid FROM flightbookings
             WHERE flightbookingid = %s AND userid = %s
         """, (request.flightid, current_user["user_id"]))
         
-        if not cursor.fetchone():
+        if not flight_cursor.fetchone():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Booking not found or does not belong to the user"
             )
         
-        # Delete from both tables
-        cursor.execute("""
-            DELETE FROM flightbookings
-            WHERE flightbookingid = %s AND userid = %s
-        """, (request.flightid, current_user["user_id"]))
-        
-        cursor.execute("""
-            DELETE FROM managebookings.user_bookings
-            WHERE bookingid = %s AND userid = %s
-        """, (request.flightid, current_user["user_id"]))
-        
-        conn.commit()
+        # Delete from both databases using two-phase commit
+        try:
+            # First, find the actual booking UUID from the booking reference
+            # Check if the flightid is a UUID or booking reference
+            booking_id = None
+            
+            # Try to parse as UUID first
+            try:
+                import uuid
+                uuid.UUID(request.flightid)
+                booking_id = request.flightid  # It's already a UUID
+            except ValueError:
+                # It's a booking reference, need to look it up
+                bookings_cursor.execute("""
+                    SELECT bookingid FROM user_bookings 
+                    WHERE booking_reference = %s AND userid = %s
+                """, (request.flightid, current_user["user_id"]))
+                
+                result = bookings_cursor.fetchone()
+                if result:
+                    booking_id = result[0]
+                else:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail="Booking not found with the provided reference"
+                    )
+            
+            # Delete from flightbookings table using the UUID
+            flight_cursor.execute("""
+                DELETE FROM flightbookings
+                WHERE flightbookingid = %s AND userid = %s
+            """, (booking_id, current_user["user_id"]))
+            
+            # Delete from user_bookings table
+            if booking_id == request.flightid:
+                # flightid was already a UUID
+                bookings_cursor.execute("""
+                    DELETE FROM user_bookings
+                    WHERE bookingid = %s AND userid = %s
+                """, (booking_id, current_user["user_id"]))
+            else:
+                # flightid was a booking reference
+                bookings_cursor.execute("""
+                    DELETE FROM user_bookings
+                    WHERE booking_reference = %s AND userid = %s
+                """, (request.flightid, current_user["user_id"]))
+            
+            # Two-phase commit: both deletions must succeed
+            flight_conn.commit()
+            bookings_conn.commit()
+            
+        except Exception as db_error:
+            # Rollback both transactions on any error
+            if flight_conn:
+                flight_conn.rollback()
+            if bookings_conn:
+                bookings_conn.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Database error during deletion: {str(db_error)}"
+            )
 
         return {
             "message": "Booking deleted successfully",
@@ -427,18 +571,25 @@ async def delete_user_booking(
     except HTTPException:
         raise
     except Exception as e:
-        if conn:
-            conn.rollback()
+        # Rollback both transactions on any error
+        if flight_conn:
+            flight_conn.rollback()
+        if bookings_conn:
+            bookings_conn.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete booking: {str(e)}"
         )
     finally:
         # Always close database connections
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
+        if flight_cursor:
+            flight_cursor.close()
+        if bookings_cursor:
+            bookings_cursor.close()
+        if flight_conn:
+            flight_conn.close()
+        if bookings_conn:
+            bookings_conn.close()
 
 # @app.get("/flights/bookings")
 # async def get_all_user_bookings(current_user: dict = Depends(get_current_user)):

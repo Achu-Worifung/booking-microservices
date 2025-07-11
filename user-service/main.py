@@ -149,8 +149,8 @@ def signup(user: UserCreate):
         token = create_access_token({
             "user_id": user_id, 
             "email": user.email, 
-            'firstname': user.fname, 
-            'lastname': user.lname
+            'fname': user.fname, 
+            'lname': user.lname
         })
         
         return {
@@ -172,7 +172,7 @@ def signup(user: UserCreate):
         if cursor:
             cursor.close()
         if conn:
-            
+
             conn.close()
 
 @app.post("/signin", status_code=status.HTTP_200_OK)
@@ -196,6 +196,8 @@ def signin(user: UserLogin):
         # Create JWT token
         token = create_access_token({
             "userid": existing_user[0], 
+            "lname": existing_user[3], 
+            "fname": existing_user[1],
             "email": existing_user[4]
         })
         
