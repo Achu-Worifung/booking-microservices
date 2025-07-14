@@ -1,5 +1,5 @@
 
-from fastapi import FastAPI, HTTPException, Depends, Query, status, Header
+from fastapi import FastAPI, HTTPException, Depends, Query, status, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, List, Literal, Dict
@@ -13,6 +13,11 @@ import random
 from dotenv import load_dotenv
 from contextlib import contextmanager
 import json
+import sys
+
+# Add shared module to path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
+from redis_rate_limit import rate_limit
 
 
 load_dotenv() #loading env variables
@@ -338,7 +343,9 @@ class BookingResponse(BaseModel):
 @app.post("/hotel/book", response_model=BookingResponse)
 async def book_hotel(
     booking_request: BookingRequest,
-    current_user: dict = Depends(get_current_user)
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+    _: bool = Depends(lambda req: rate_limit(req, limit=3, window=60, service="hotel-service"))
 ):
     """
     Endpoint to book a hotel with user authentication.
@@ -486,7 +493,9 @@ async def book_hotel(
 @app.get("/hotels/booking/{booking_id}")
 async def get_user_booking(
     booking_id: str,
-    current_user: dict = Depends(get_current_user)
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+    _: bool = Depends(lambda req: rate_limit(req, limit=5, window=60, service="hotel-service"))
 ):
     """
     Get a specific hotel booking for the authenticated user using booking id (UUID).
@@ -554,8 +563,10 @@ async def get_user_booking(
         
 @app.delete("/hotels/delete")
 async def delete_user_booking(
-    request: DeleteBookingRequest,
-    current_user: dict = Depends(get_current_user)
+    request_body: DeleteBookingRequest,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+    _: bool = Depends(lambda req: rate_limit(req, limit=3, window=60, service="hotel-service"))
 ):
     """
     Delete a user's hotel booking.
@@ -599,14 +610,14 @@ async def delete_user_booking(
             
             # Try to parse as UUID first
             try:
-                uuid.UUID(request.hotelid)
-                booking_id = request.hotelid  # It's already a UUID
+                uuid.UUID(request_body.hotelid)
+                booking_id = request_body.hotelid  # It's already a UUID
             except ValueError:
                 # It's a booking reference, need to look it up
                 bookings_cursor.execute("""
                     SELECT bookingid FROM user_bookings 
                     WHERE booking_reference = %s AND userid = %s
-                """, (request.hotelid, current_user["user_id"]))
+                """, (request_body.hotelid, current_user["user_id"]))
                 
                 result = bookings_cursor.fetchone()
                 if result:
@@ -624,7 +635,7 @@ async def delete_user_booking(
             """, (booking_id, current_user["user_id"]))
             
             # Delete from user_bookings table
-            if booking_id == request.hotelid:
+            if booking_id == request_body.hotelid:
                 # hotelid was already a UUID
                 bookings_cursor.execute("""
                     DELETE FROM user_bookings
@@ -635,7 +646,7 @@ async def delete_user_booking(
                 bookings_cursor.execute("""
                     DELETE FROM user_bookings
                     WHERE booking_reference = %s AND userid = %s
-                """, (request.hotelid, current_user["user_id"]))
+                """, (request_body.hotelid, current_user["user_id"]))
             
             # Two-phase commit: both deletions must succeed
             hotel_conn.commit()
@@ -654,7 +665,7 @@ async def delete_user_booking(
 
         return {
             "message": "Hotel booking deleted successfully",
-            "deleted_booking_id": request.hotelid,
+            "deleted_booking_id": request_body.hotelid,
             "user_id": current_user["user_id"]
         }
 
@@ -682,7 +693,7 @@ async def delete_user_booking(
             bookings_conn.close()
 
 @app.get("/")
-async def root():
+async def root(request: Request, _: bool = Depends(lambda req: rate_limit(req, limit=10, window=60, service="hotel-service"))):
     """
     Root endpoint providing service information.
     """
@@ -955,7 +966,9 @@ def available_hotels(count: int, city: str, state: str) -> List[Hotel]:
 async def get_hotels(
     count: int = Query(5, ge=1, le=20, description="Number of hotels to generate (1-20)."),
     city: str = Query("New York", description="City name for hotel location"),
-    state: str = Query("NY", description="State for hotel location")
+    state: str = Query("NY", description="State for hotel location"),
+    request: Request = None,
+    _: bool = Depends(lambda req: rate_limit(req, limit=5, window=60, service="hotel-service"))
 ):
     """returns a list of available hotels based on the count provided."""
     try:

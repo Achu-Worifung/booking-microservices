@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Query, status, Header
+from fastapi import FastAPI, HTTPException, Depends, Query, status, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field 
 from typing import Optional, List, Dict 
@@ -13,6 +13,11 @@ import uuid
 from models import Car, Flight, Hotel
 import uvicorn
 import requests
+import sys
+
+# Add shared module to path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
+from redis_rate_limit import rate_limit
 
 
 load_dotenv()  # Load environment variables
@@ -304,8 +309,10 @@ async def cancel_booking(service_url: str, booking_id: str, token: str) -> bool:
 async def book_trip_items(
     tripid: uuid.UUID,
     booking_request: TripBookingRequest,
+    request: Request,
     current_user: dict = Depends(get_current_user),
-    authorization: str = Header(None)
+    authorization: str = Header(None),
+    _: bool = Depends(lambda req: rate_limit(req, limit=3, window=60, service="trip-service"))
 ):
     """
     Book all trip items (car, hotel, flight) with distributed transaction.
@@ -483,7 +490,9 @@ async def book_trip_items(
 @app.post("/trips/create")
 async def create_trip(
     trip: Trip,
-    current_user: dict = Depends(get_current_user)
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+    _: bool = Depends(lambda req: rate_limit(req, limit=5, window=60, service="trip-service"))
 ):
     """
     CREATE A NEW TRIP
@@ -505,7 +514,9 @@ async def create_trip(
 @app.delete("/trips/delete/{tripid}")
 async def delete_trip(
     tripid: uuid.UUID,
-    current_user: dict = Depends(get_current_user)
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+    _: bool = Depends(lambda req: rate_limit(req, limit=5, window=60, service="trip-service"))
 ):
     """
     DELETE A TRIP
@@ -532,7 +543,9 @@ async def delete_trip(
 async def update_trip(
     tripid: uuid.UUID,
     trip: Trip,
-    current_user: dict = Depends(get_current_user)
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+    _: bool = Depends(lambda req: rate_limit(req, limit=5, window=60, service="trip-service"))
 ):
     """
     UPDATE A TRIP

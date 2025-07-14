@@ -1,13 +1,19 @@
 # main.py
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request, Depends
 from pydantic import BaseModel, Field
 from typing import List, Literal, Dict, Optional
 import uuid
 import datetime
 import random
 import json
+import sys
+import os
 
 import uvicorn
+
+# Add shared module to path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
+from redis_rate_limit import rate_limit
 
 
 # Initialize FastAPI application
@@ -175,7 +181,9 @@ def generate_fake_flights(departure_date_str: str, count: int = 5) -> List[Fligh
 @app.get("/flights", response_model=List[Flight])
 async def generate_flights_endpoint(
     departure_date: str = Query(..., description="The desired departure date in YYYY-MM-DD format."),
-    count: int = Query(5, ge=1, le=20, description="The number of fake flights to generate (1-20).")
+    count: int = Query(5, ge=1, le=20, description="The number of fake flights to generate (1-20)."),
+    request: Request = None,
+    _: bool = Depends(lambda req: rate_limit(req, limit=5, window=60, service="flight-service"))
 ):
     """
     Endpoint for the list of flights for a given departure date.
@@ -183,7 +191,7 @@ async def generate_flights_endpoint(
     return generate_fake_flights(departure_date, count)
 
 @app.get("/")
-async def root():
+async def root(request: Request, _: bool = Depends(lambda req: rate_limit(req, limit=10, window=60, service="flight-service"))):
     """
     Root endpoint for the  flight  microservice.
     Provides a welcome message and directs to documentation.

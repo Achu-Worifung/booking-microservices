@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional
@@ -10,6 +10,11 @@ from dotenv import load_dotenv
 from passlib.context import CryptContext
 import psycopg2
 from contextlib import contextmanager
+import sys
+
+# Add shared module to path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
+from redis_rate_limit import rate_limit
 
 load_dotenv()
 
@@ -131,11 +136,11 @@ def create_access_token(data: dict):
 
 # Routes
 @app.get("/")
-def root():
+def root(request: Request, _: bool = Depends(lambda req: rate_limit(req, limit=10, window=60, service="user-service"))):
     return {"message": "Welcome to the User Service!"}
 
 @app.post("/signup", status_code=status.HTTP_201_CREATED)
-def signup(user: UserCreate):
+def signup(user: UserCreate, request: Request, _: bool = Depends(lambda req: rate_limit(req, limit=3, window=300, service="user-service"))):
     """
     User signup endpoint with proper database connection management.
     """
@@ -186,7 +191,7 @@ def signup(user: UserCreate):
             conn.close()
 
 @app.post("/signin", status_code=status.HTTP_200_OK)
-def signin(user: UserLogin):
+def signin(user: UserLogin, request: Request, _: bool = Depends(lambda req: rate_limit(req, limit=5, window=300, service="user-service"))):
     """
     User signin endpoint with proper database connection management.
     """
