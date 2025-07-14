@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends, Query, status, Header
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field 
 from typing import Optional, List, Dict 
 import jwt 
@@ -105,6 +106,15 @@ app = FastAPI(
     title="Trip Service",
     description="Service for managing trip bookings including car, hotel, and flight.",
     version="1.0.0"
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
 )
 
 

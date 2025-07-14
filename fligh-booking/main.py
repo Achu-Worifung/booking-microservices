@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends, Query, status, Header
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, List, Literal, Dict
 import datetime
@@ -113,6 +114,15 @@ app = FastAPI(
     title="User Service",
     description="Microservice for flight booking and cancellation",
     version="1.0.0"
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
 )
 
 #models
