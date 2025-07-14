@@ -9,8 +9,9 @@ from dotenv import load_dotenv
 from contextlib import contextmanager
 import json 
 import uuid
-
+from models import Car, Flight, Hotel
 import uvicorn
+import requests
 
 
 load_dotenv()  # Load environment variables
@@ -27,6 +28,11 @@ DB_CONFIG = {
         "password": os.getenv("password"),
         "port": os.getenv("PGPORT")
 }
+
+# Microservice URLs
+CAR_SERVICE_URL = "http://127.0.0.1:8001"
+HOTEL_SERVICE_URL = "http://127.0.0.1:8002"
+FLIGHT_SERVICE_URL = "http://127.0.0.1:8004"  # Updated to fligh-booking service port
 
 def get_db_connection(CONFIG=DB_CONFIG):
     """
@@ -55,6 +61,21 @@ class Trip(BaseModel):
     description: str
     createdat: datetime.datetime
     updatedat: datetime.datetime
+
+class TripBookingRequest(BaseModel):
+    car: Optional[Car] = None
+    hotel: Optional[Hotel] = None
+    flight: Optional[Flight] = None
+    car_insurance: Optional[Dict] = None
+    hotel_insurance: Optional[Dict] = None
+    flight_insurance: Optional[Dict] = None
+    total_amount: float = Field(..., description="Total amount for all bookings")
+
+class BookingResult(BaseModel):
+    success: bool
+    booking_id: Optional[str] = None
+    booking_reference: Optional[str] = None
+    error: Optional[str] = None
 
 @contextmanager
 def get_db_cursor():
@@ -151,6 +172,304 @@ def get_current_user(authorization: str = Header(None)) -> dict:
     
     return verify_token(token)
 
+async def book_car(car: Car, insurance: Optional[Dict], total: float, trip_id: str, token: str) -> BookingResult:
+    """Book a car via car service"""
+    try:
+        payload = {
+            "car": car.dict(),
+            "insurance": insurance,
+            "total": total,
+            "trip_id": trip_id
+        }
+        
+        response = requests.post(
+            f"{CAR_SERVICE_URL}/car/book",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json=payload,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            return BookingResult(
+                success=True,
+                booking_id=result.get("booking_id"),
+                booking_reference=result.get("booking_reference")
+            )
+        else:
+            return BookingResult(success=False, error=f"Car booking failed: {response.text}")
+            
+    except Exception as e:
+        return BookingResult(success=False, error=f"Car booking error: {str(e)}")
+
+async def book_hotel(hotel: Hotel, insurance: Optional[Dict], total: float, trip_id: str, token: str) -> BookingResult:
+    """Book a hotel via hotel service"""
+    try:
+        payload = {
+            "hotel": hotel.dict(),
+            "insurance": insurance,
+            "total": total,
+            "trip_id": trip_id
+        }
+        
+        response = requests.post(
+            f"{HOTEL_SERVICE_URL}/hotel/book",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json=payload,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            return BookingResult(
+                success=True,
+                booking_id=result.get("booking_id"),
+                booking_reference=result.get("booking_reference")
+            )
+        else:
+            return BookingResult(success=False, error=f"Hotel booking failed: {response.text}")
+            
+    except Exception as e:
+        return BookingResult(success=False, error=f"Hotel booking error: {str(e)}")
+
+async def book_flight(flight: Flight, insurance: Optional[Dict], total: float, trip_id: str, token: str) -> BookingResult:
+    """Book a flight via flight service"""
+    try:
+        payload = {
+            "flight": flight.dict(),
+            "insurance": insurance,
+            "total": total,
+            "trip_id": trip_id
+        }
+        
+        response = requests.post(
+            f"{FLIGHT_SERVICE_URL}/flight/book",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json=payload,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            return BookingResult(
+                success=True,
+                booking_id=result.get("booking_id"),
+                booking_reference=result.get("booking_reference")
+            )
+        else:
+            return BookingResult(success=False, error=f"Flight booking failed: {response.text}")
+            
+    except Exception as e:
+        return BookingResult(success=False, error=f"Flight booking error: {str(e)}")
+
+async def cancel_booking(service_url: str, booking_id: str, token: str) -> bool:
+    """Cancel a booking via its service"""
+    try:
+        if "car" in service_url:
+            endpoint = f"{service_url}/cars/delete"
+            payload = {"carid": booking_id}
+        elif "hotel" in service_url:
+            endpoint = f"{service_url}/hotels/delete"
+            payload = {"hotelid": booking_id}
+        elif "flight" in service_url:
+            endpoint = f"{service_url}/flights/delete"
+            payload = {"flightid": booking_id}
+        else:
+            return False
+            
+        response = requests.delete(
+            endpoint,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json=payload,
+            timeout=30
+        )
+        
+        return response.status_code == 200
+        
+    except Exception as e:
+        print(f"Failed to cancel booking {booking_id}: {str(e)}")
+        return False
+
+@app.post("/trips/book/{tripid}")
+async def book_trip_items(
+    tripid: uuid.UUID,
+    booking_request: TripBookingRequest,
+    current_user: dict = Depends(get_current_user),
+    authorization: str = Header(None)
+):
+    """
+    Book all trip items (car, hotel, flight) with distributed transaction.
+    Either ALL bookings succeed or ALL are rolled back.
+    """
+    # Verify trip exists and belongs to user
+    with get_db_cursor() as (cursor, conn):
+        cursor.execute(
+            "SELECT * FROM trips WHERE tripid = %s AND userid = %s",
+            (tripid, current_user["user_id"])
+        )
+        existing_trip = cursor.fetchone()
+        if not existing_trip:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Trip not found or does not belong to the user"
+            )
+    
+    # Extract token from authorization header
+    token = authorization.split(" ")[1] if authorization else ""
+    trip_id_str = str(tripid)
+    
+    # Track successful bookings for rollback if needed
+    successful_bookings = []
+    booking_results = {}
+    
+    try:
+        # Phase 1: Attempt all bookings concurrently
+        booking_tasks = []
+        service_types = []
+        
+        # Prepare booking tasks
+        if booking_request.car:
+            print("Preparing car booking...")
+            booking_tasks.append(book_car(
+                booking_request.car, 
+                booking_request.car_insurance, 
+                booking_request.total_amount, 
+                trip_id_str, 
+                token
+            ))
+            service_types.append("car")
+        
+        if booking_request.hotel:
+            print("Preparing hotel booking...")
+            booking_tasks.append(book_hotel(
+                booking_request.hotel, 
+                booking_request.hotel_insurance, 
+                booking_request.total_amount, 
+                trip_id_str, 
+                token
+            ))
+            service_types.append("hotel")
+        
+        if booking_request.flight:
+            print("Preparing flight booking...")
+            booking_tasks.append(book_flight(
+                booking_request.flight, 
+                booking_request.flight_insurance, 
+                booking_request.total_amount, 
+                trip_id_str, 
+                token
+            ))
+            service_types.append("flight")
+        
+        # Execute all bookings concurrently
+        if booking_tasks:
+            print(f"Executing {len(booking_tasks)} bookings concurrently...")
+            import asyncio
+            booking_results_list = await asyncio.gather(*booking_tasks)
+            
+            # Process results
+            for i, result in enumerate(booking_results_list):
+                service_type = service_types[i]
+                
+                if result.success:
+                    successful_bookings.append((service_type, result.booking_id))
+                    booking_results[service_type] = result.dict()
+                    print(f"{service_type.capitalize()} booking successful: {result.booking_id}")
+                else:
+                    raise Exception(f"{service_type.capitalize()} booking failed: {result.error}")
+        else:
+            raise Exception("No booking items provided")
+        
+        # Phase 2: All bookings successful - Update trip with booking details
+        with get_db_cursor() as (cursor, conn):
+            # Build dynamic update query based on what was booked
+            update_fields = []
+            update_values = []
+            
+            if "car" in booking_results:
+                update_fields.extend([
+                    "carincluded = %s",
+                    "carbookingid = %s", 
+                    "carbookingreference = %s"
+                ])
+                update_values.extend([
+                    True,
+                    booking_results["car"]["booking_id"],
+                    booking_results["car"]["booking_reference"]
+                ])
+            
+            if "hotel" in booking_results:
+                update_fields.extend([
+                    "hotelincluded = %s",
+                    "hotelbookingid = %s",
+                    "hotelbookingreference = %s"
+                ])
+                update_values.extend([
+                    True,
+                    booking_results["hotel"]["booking_id"],
+                    booking_results["hotel"]["booking_reference"]
+                ])
+            
+            if "flight" in booking_results:
+                update_fields.extend([
+                    "flightincluded = %s",
+                    "flightbookingid = %s",
+                    "flightbookingreference = %s"
+                ])
+                update_values.extend([
+                    True,
+                    booking_results["flight"]["booking_id"],
+                    booking_results["flight"]["booking_reference"]
+                ])
+            
+            if update_fields:
+                update_fields.append("updatedat = NOW()")
+                update_values.append(tripid)
+                
+                query = f"""
+                    UPDATE trips SET {', '.join(update_fields)}
+                    WHERE tripid = %s
+                """
+                cursor.execute(query, update_values)
+                conn.commit()
+        
+        return {
+            "message": "All trip items booked successfully",
+            "trip_id": str(tripid),
+            "bookings": booking_results,
+            "total_amount": booking_request.total_amount
+        }
+        
+    except Exception as e:
+        # Phase 3: Rollback - Cancel all successful bookings
+        print(f"Booking failed, rolling back: {str(e)}")
+        
+        rollback_failures = []
+        for service_type, booking_id in successful_bookings:
+            print(f"Rolling back {service_type} booking: {booking_id}")
+            
+            if service_type == "car":
+                success = await cancel_booking(CAR_SERVICE_URL, booking_id, token)
+            elif service_type == "hotel":
+                success = await cancel_booking(HOTEL_SERVICE_URL, booking_id, token)
+            elif service_type == "flight":
+                success = await cancel_booking(FLIGHT_SERVICE_URL, booking_id, token)
+            else:
+                success = False
+                
+            if not success:
+                rollback_failures.append(f"{service_type}:{booking_id}")
+        
+        # Prepare error response
+        error_message = f"Trip booking failed: {str(e)}"
+        if rollback_failures:
+            error_message += f". WARNING: Failed to rollback bookings: {', '.join(rollback_failures)}"
+        
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=error_message
+        )
+
 @app.post("/trips/create")
 async def create_trip(
     trip: Trip,
@@ -233,6 +552,36 @@ async def update_trip(
         )
         conn.commit()
     return {"message": "Trip updated successfully"}
+
+
+@app.post('/trips/saveitems/{tripid}')
+async def save_trip_items(
+    tripid: uuid.UUID,
+    cars: Optional[List[Car]] = None,
+    flights: Optional[List[Flight]] = None,
+    hotels: Optional[List[Hotel]] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Save items (cars, flights, hotels) for a trip.
+    """
+    # Check if the trip exists and belongs to the user
+    with get_db_cursor() as (cursor, conn):
+        cursor.execute(
+            "SELECT * FROM trips WHERE tripid = %s AND userid = %s",
+            (tripid, current_user["user_id"])
+        )
+        existing_trip = cursor.fetchone()
+        if not existing_trip:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Trip not found or does not belong to the user"
+            )
+
+        # Save each item to the database
+        
+        conn.commit()
+    return {"message": "Trip items saved successfully"}
 
 @app.get("/")
 async def root():

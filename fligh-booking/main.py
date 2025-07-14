@@ -248,6 +248,7 @@ class BookingResponse(BaseModel):
 @app.post("/flights/book", response_model=BookingResponse)
 async def book_flight(
     flight: Flight,
+    trip_id: Optional[str] = None,
     current_user: dict = Depends(get_current_user)
 ):
     """
@@ -323,7 +324,7 @@ async def book_flight(
                 1,  # Default 1 seat
                 flight.prices[flight.choosenSeat],  # Price for chosen seat class
                 json.dumps(flight_data),  # Convert flight object to JSON with proper datetime handling
-                None  # trip_id
+                trip_id if trip_id else None  
             ))
             
             booking_id = flight_cursor.fetchone()[0]
@@ -339,15 +340,17 @@ async def book_flight(
                     bookingtype,
                     totalamount, 
                     created_at,
-                    updated_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+                    updated_at,
+                    tripid
+                ) VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW(), %s)
             """, (
                 booking_id,
                 booking_reference,
                 "00000000-0000-0000-0000-000000000000",  # Placeholder for payment ID
                 current_user["user_id"],
                 "Flight",
-                flight.prices[flight.choosenSeat]
+                flight.prices[flight.choosenSeat],
+                trip_id if trip_id else None  # trip_id from request
             ))
             
             # Two-phase commit: both transactions must succeed

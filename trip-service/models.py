@@ -58,9 +58,9 @@ class Flight(BaseModel):
     prices: Dict[FlightClass, float] # Use Dict with FlightClass Literal
     bookingUrl: str
     
-    # -------------------------------------MODELS FOR THE HOTEL------------------------
-    vendorNames = Literal['Marriott', 'Hilton', 'Hyatt', 'Sheraton', 'Radisson', 'InterContinental', 'Holiday Inn', 'Ritz-Carlton', 'Four Seasons', 'Wyndham', 'Best Western', 'Motel 6', 'Super 8', 'Comfort Inn', 'Quality Inn', 'Days Inn', 'Econo Lodge', 'Red Roof Inn', 'La Quinta Inn', 'Sleep Inn']
-attraction = Literal['Beach', 'Park', 'Museum', 'Shopping Mall', 'Restaurant', 'Theater', 'Zoo', 'Aquarium', 'Historical Site', 'Amusement Park', 'Sports Stadium', 'Concert Hall', 'Art Gallery', 'Botanical Garden', 'Nature Reserve', 'Scenic Viewpoint', 'Cultural Center', 'Nightlife District', 'Festival Venue']
+# -------------------------------------MODELS FOR THE HOTEL------------------------
+VendorNames = Literal['Marriott', 'Hilton', 'Hyatt', 'Sheraton', 'Radisson', 'InterContinental', 'Holiday Inn', 'Ritz-Carlton', 'Four Seasons', 'Wyndham', 'Best Western', 'Motel 6', 'Super 8', 'Comfort Inn', 'Quality Inn', 'Days Inn', 'Econo Lodge', 'Red Roof Inn', 'La Quinta Inn', 'Sleep Inn']
+AttractionType = Literal['Beach', 'Park', 'Museum', 'Shopping Mall', 'Restaurant', 'Theater', 'Zoo', 'Aquarium', 'Historical Site', 'Amusement Park', 'Sports Stadium', 'Concert Hall', 'Art Gallery', 'Botanical Garden', 'Nature Reserve', 'Scenic Viewpoint', 'Cultural Center', 'Nightlife District', 'Festival Venue']
 
 class RoomDetails(BaseModel):
     """
@@ -77,7 +77,7 @@ class Attraction(BaseModel):
     Represents nearby attraction for a hotel.
     """
     name: str
-    type: attraction
+    type: AttractionType
     distance: float
 
 class Review(BaseModel):
@@ -135,7 +135,7 @@ class Hotel(BaseModel):
     """
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), alias="_id")
     name: str
-    vendor: vendorNames
+    vendor: VendorNames
     address: str
     city: str
     state: str

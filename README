@@ -1,0 +1,5 @@
+HOW TO RUN 
+CREATE A PYTHON VIRTUAL ENVIRONMENT: python -m venv myenv
+ACTIVATE THE VIRTUAL ENVIRONMENT: .\myenv\Scripts\activate
+INSTALL REQUIREMENTS: pip install -r requirements.txt
+
