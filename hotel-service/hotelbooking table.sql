@@ -22,3 +22,5 @@ drop table hotelbookings;
 
 
 create database hotel_db;
+
+select * from trips

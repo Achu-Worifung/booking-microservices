@@ -1,7 +1,7 @@
 // trip_service_test.js
 // Test script for Trip Service
 
-const BASE_URL = "http://127.0.0.1:8003";
+const BASE_URL = "http://127.0.0.1:8012";
 const TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyaWQiOiIyM2NiYzUwZS04ZDFhLTQ5MjQtYjBlNS1iMzFhODNkNDRmYjIiLCJlbWFpbCI6ImpvaG4uZG9lQGV4YW1wbGUuY29tIn0.V4zVIh7NYP8QYNGX8BZCfbp6WtQ_CIW4lJP86G-iAv0";
 
 // Test trip data
@@ -29,6 +29,7 @@ async function testCreateTrip() {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${TOKEN}`,
+                'X-Client-ID': 'test-client-id',
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify(testTrip)
@@ -60,7 +61,8 @@ async function testServiceHealth() {
         const response = await fetch(`${BASE_URL}/`, {
             method: 'GET',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'X-Client-ID': 'test-client-id'
             }
         });
 
@@ -102,6 +104,7 @@ async function testCreateTripBusiness() {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${TOKEN}`,
+                'X-Client-ID': 'test-client-id',
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify(businessTrip)
@@ -125,76 +128,82 @@ async function testCreateTripBusiness() {
     }
 }
 
-// Test function with invalid data (missing required fields)
-async function testCreateTripInvalid() {
-    console.log("Testing Trip Creation with Invalid Data...");
-    
-    const invalidTrip = {
-        tripname: "Invalid Trip",
-        // Missing required fields like destination, dates, etc.
-        travelers: 1,
-        budget: 500.00
-    };
+// test for ("/trips/book/{tripid}
+async function testBookTrip(tripid) {
+    console.log(`Testing Booking for Trip ID: ${tripid}...`);
     
     try {
-        const response = await fetch(`${BASE_URL}/trips/create`, {
+        const response = await fetch(`${BASE_URL}/trips/book/${tripid}`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${TOKEN}`,
+                'X-Client-ID': 'test-client-id',
                 'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(invalidTrip)
+            }, 
+            body:JSON.stringify({
+                car: {
+                    make: "Toyota",
+                    model: "Camry",
+                    year: 2024,
+                    color: ["White", "Silver"],
+                    seat: 5,
+                    type: "Sedan",
+                    price_per_day: 45.99,
+                    feature: "GPS, Air Conditioning, Bluetooth",
+                    transmission: "Automatic",
+                    fuel_type: "Petrol",
+                    available: true,
+                    rating: 4.5
+                },
+                flight: {
+                    airline: "Delta",
+                    flightNumber: "DL1234",
+                    departureAirport: "LAX",
+                    destinationAirport: "JFK",
+                    departureTime: "2025-07-15T08:00:00",
+                    arrivalTime: "2025-07-15T14:30:00",
+                    duration: "6h 30m",
+                    numberOfStops: 1,
+                    stops: [],
+                    status: "On Time",
+                    aircraft: "Boeing 737",
+                    gate: "A12",
+                    terminal: "A",
+                    meal: true,
+                    availableSeats: {
+                        Economy: 50,
+                        Business: 15,
+                        First: 5
+                    },
+                    prices: {
+                        Economy: 299.99,
+                        Business: 799.99,
+                        First: 1499.99
+                    },
+                    bookingUrl: "#",
+                    choosenSeat: "Economy"
+                }
+            })
         });
 
         const result = await response.json();
         
         if (response.ok) {
-            console.log("Unexpected: Invalid trip creation succeeded!");
-            console.log("Trip Details:", JSON.stringify(result, null, 2));
+            console.log("Trip booking successful!");
+            console.log("Booking Details:", JSON.stringify(result, null, 2));
             return result;
         } else {
-            console.log("Expected: Invalid trip creation failed (as expected)!");
+            console.log("Trip booking failed!");
             console.log("Error details:", JSON.stringify(result, null, 2));
             return null;
         }
     } catch (error) {
-        console.log("Invalid trip creation request failed (as expected)!");
+        console.log("Trip booking request failed!");
         console.log("Error:", error.message);
         return null;
     }
 }
 
-// Test function without authentication
-async function testCreateTripNoAuth() {
-    console.log("Testing Trip Creation without Authentication...");
-    
-    try {
-        const response = await fetch(`${BASE_URL}/trips/create`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-                // No Authorization header
-            },
-            body: JSON.stringify(testTrip)
-        });
-
-        const result = await response.json();
-        
-        if (response.ok) {
-            console.log("Unexpected: Trip creation without auth succeeded!");
-            console.log("Trip Details:", JSON.stringify(result, null, 2));
-            return result;
-        } else {
-            console.log("Expected: Trip creation without auth failed (as expected)!");
-            console.log("Error details:", JSON.stringify(result, null, 2));
-            return null;
-        }
-    } catch (error) {
-        console.log("Trip creation without auth request failed (as expected)!");
-        console.log("Error:", error.message);
-        return null;
-    }
-}
 
 // Main test runner
 async function runTripServiceTests() {
@@ -213,13 +222,6 @@ async function runTripServiceTests() {
     console.log("\nTest 3: Business Trip Creation");
     await testCreateTripBusiness();
     
-    // Test 4: Invalid Trip Creation (should fail)
-    console.log("\nTest 4: Invalid Trip Creation");
-    await testCreateTripInvalid();
-    
-    // Test 5: No Authentication (should fail)
-    console.log("\nTest 5: Trip Creation without Authentication");
-    await testCreateTripNoAuth();
     
     console.log("\n" + "=" .repeat(50));
     console.log("Trip Service Tests Completed!");

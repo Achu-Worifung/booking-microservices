@@ -311,13 +311,14 @@ async def book_trip_items(
     booking_request: TripBookingRequest,
     request: Request,
     current_user: dict = Depends(get_current_user),
-    authorization: str = Header(None),
-    _: bool = Depends(lambda req: rate_limit(req, limit=3, window=60, service="trip-service"))
-):
+    authorization: str = Header(None)):
     """
     Book all trip items (car, hotel, flight) with distributed transaction.
     Either ALL bookings succeed or ALL are rolled back.
     """
+    await rate_limit(request, limit=5, window=60, service="user-service")
+
+
     # Verify trip exists and belongs to user
     with get_db_cursor() as (cursor, conn):
         cursor.execute(
@@ -492,11 +493,11 @@ async def create_trip(
     trip: Trip,
     request: Request,
     current_user: dict = Depends(get_current_user),
-    _: bool = Depends(lambda req: rate_limit(req, limit=5, window=60, service="trip-service"))
 ):
     """
     CREATE A NEW TRIP
     """
+    await rate_limit(request, limit=5, window=60, service="trip-service")
     # Create the trip in the database
     with get_db_cursor() as (cursor, conn):
         cursor.execute(
@@ -516,11 +517,11 @@ async def delete_trip(
     tripid: uuid.UUID,
     request: Request,
     current_user: dict = Depends(get_current_user),
-    _: bool = Depends(lambda req: rate_limit(req, limit=5, window=60, service="trip-service"))
 ):
     """
     DELETE A TRIP
     """
+    await rate_limit(request, limit=5, window=60, service="trip-service")
 
     #in the frontend call the delete for everything car, flight and hotel, the the trips uuid
     # Check if the trip exists and belongs to the user
@@ -545,11 +546,11 @@ async def update_trip(
     trip: Trip,
     request: Request,
     current_user: dict = Depends(get_current_user),
-    _: bool = Depends(lambda req: rate_limit(req, limit=5, window=60, service="trip-service"))
 ):
     """
     UPDATE A TRIP
     """
+    await rate_limit(request, limit=5, window=60, service="trip-service")
     # Check if the trip exists and belongs to the user
     with get_db_cursor() as (cursor, conn):
         cursor.execute(
@@ -579,6 +580,7 @@ async def update_trip(
 
 @app.post('/trips/saveitems/{tripid}')
 async def save_trip_items(
+    request: Request,
     tripid: uuid.UUID,
     cars: Optional[List[Car]] = None,
     flights: Optional[List[Flight]] = None,
@@ -588,6 +590,7 @@ async def save_trip_items(
     """
     Save items (cars, flights, hotels) for a trip.
     """
+    await rate_limit(request, limit=5, window=60, service="trip-service")
     # Check if the trip exists and belongs to the user
     with get_db_cursor() as (cursor, conn):
         cursor.execute(
