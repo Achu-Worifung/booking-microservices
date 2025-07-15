@@ -180,18 +180,19 @@ def generate_fake_flights(departure_date_str: str, count: int = 5) -> List[Fligh
 
 @app.get("/flights", response_model=List[Flight])
 async def generate_flights_endpoint(
-    departure_date: str = Query(..., description="The desired departure date in YYYY-MM-DD format."),
+    request: Request,
+    departure_date: str = Query(default=datetime.date.today().strftime("%Y-%m-%d"), description="The desired departure date in YYYY-MM-DD format."),
     count: int = Query(5, ge=1, le=20, description="The number of fake flights to generate (1-20)."),
-    request: Request = None,
-    _: bool = Depends(lambda req: rate_limit(req, limit=5, window=60, service="flight-service"))
-):
+    ):
+    await rate_limit(request, limit=5, window=60, service="flight-service")
     """
     Endpoint for the list of flights for a given departure date.
     """
     return generate_fake_flights(departure_date, count)
 
 @app.get("/")
-async def root(request: Request, _: bool = Depends(lambda req: rate_limit(req, limit=10, window=60, service="flight-service"))):
+async def root(request: Request):
+    await rate_limit(request, limit=5, window=60, service="flight-service")
     """
     Root endpoint for the  flight  microservice.
     Provides a welcome message and directs to documentation.
