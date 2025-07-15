@@ -344,9 +344,7 @@ class BookingResponse(BaseModel):
 async def book_hotel(
     booking_request: BookingRequest,
     request: Request,
-    current_user: dict = Depends(get_current_user),
-    _: bool = Depends(lambda req: rate_limit(req, limit=3, window=60, service="hotel-service"))
-):
+    current_user: dict = Depends(get_current_user)):
     """
     Endpoint to book a hotel with user authentication.
     Requires a valid JWT token in the Authorization header.
@@ -356,6 +354,7 @@ async def book_hotel(
     
     Returns booking confirmation with user and hotel details.
     """
+    await rate_limit(request, limit=5, window=60, service="hotel-service")
     hotel_conn = None
     bookings_conn = None
     hotel_cursor = None
@@ -494,9 +493,7 @@ async def book_hotel(
 async def get_user_booking(
     booking_id: str,
     request: Request,
-    current_user: dict = Depends(get_current_user),
-    _: bool = Depends(lambda req: rate_limit(req, limit=5, window=60, service="hotel-service"))
-):
+    current_user: dict = Depends(get_current_user)):
     """
     Get a specific hotel booking for the authenticated user using booking id (UUID).
     Requires a valid JWT token in the Authorization header.
@@ -504,6 +501,7 @@ async def get_user_booking(
     Path parameter:
         booking_id: The hotel booking UUID (e.g., 3ac77330-cade-4add-9a8c-3e4b3ea3bb81)
     """
+    await rate_limit(request, limit=5, window=60, service="hotel-service")
     hotel_conn = None
     bookings_conn = None
     hotel_cursor = None
@@ -566,7 +564,6 @@ async def delete_user_booking(
     request_body: DeleteBookingRequest,
     request: Request,
     current_user: dict = Depends(get_current_user),
-    _: bool = Depends(lambda req: rate_limit(req, limit=3, window=60, service="hotel-service"))
 ):
     """
     Delete a user's hotel booking.
@@ -577,6 +574,7 @@ async def delete_user_booking(
         "hotelid": "12345678-1234-1234-1234-123456789012"
     }
     """
+    await rate_limit(request, limit=5, window=60, service="hotel-service")
     hotel_conn = None
     bookings_conn = None
     hotel_cursor = None
@@ -594,7 +592,7 @@ async def delete_user_booking(
         hotel_cursor.execute("""
             SELECT hotelbookingid FROM hotelbookings
             WHERE hotelbookingid = %s AND userid = %s
-        """, (request.hotelid, current_user["user_id"]))
+        """, (request_body.hotelid, current_user["user_id"]))
         
         if not hotel_cursor.fetchone():
             raise HTTPException(
@@ -693,10 +691,11 @@ async def delete_user_booking(
             bookings_conn.close()
 
 @app.get("/")
-async def root(request: Request, _: bool = Depends(lambda req: rate_limit(req, limit=10, window=60, service="hotel-service"))):
+async def root(request: Request):
     """
     Root endpoint providing service information.
     """
+    await rate_limit(request, limit=5, window=60, service="hotel-service")
     return {
         "service": "Hotel Booking Service",
         "version": "1.0.0",
@@ -964,13 +963,13 @@ def available_hotels(count: int, city: str, state: str) -> List[Hotel]:
         
 @app.get("/hotels", response_model=List[Hotel])
 async def get_hotels(
+    request: Request,
     count: int = Query(5, ge=1, le=20, description="Number of hotels to generate (1-20)."),
     city: str = Query("New York", description="City name for hotel location"),
     state: str = Query("NY", description="State for hotel location"),
-    request: Request = None,
-    _: bool = Depends(lambda req: rate_limit(req, limit=5, window=60, service="hotel-service"))
 ):
     """returns a list of available hotels based on the count provided."""
+    await rate_limit(request, limit=5, window=60, service="hotel-service")
     try:
         return available_hotels(count, city, state)
     except Exception as e:

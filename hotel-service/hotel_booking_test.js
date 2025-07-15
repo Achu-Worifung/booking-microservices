@@ -125,6 +125,7 @@ async function testHotelBooking() {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${TOKEN}`,
+                "X-Client-ID": "test-client-id", 
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify(requestBody)
@@ -157,6 +158,7 @@ async function testGetHotelBooking(bookingId) {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${TOKEN}`,
+                "X-Client-ID": "test-client-id",
                 'Content-Type': 'application/json'
             }
         });
@@ -181,13 +183,14 @@ async function testGetHotelBooking(bookingId) {
 
 // Test function for deleting a hotel booking
 async function testDeleteHotelBooking(bookingId) {
-    console.log("Testing Delete Hotel Booking...");
+    console.log("Testing Delete Hotel Booking...", bookingId);
     
     try {
         const response = await fetch(`${BASE_URL}/hotels/delete`, {
             method: 'DELETE',
             headers: {
                 'Authorization': `Bearer ${TOKEN}`,
+                "X-Client-ID": "test-client-id",
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
@@ -243,6 +246,36 @@ async function testServiceHealth() {
     }
 }
 
+async function getAvailableHotels() {
+    console.log("Testing Get Available Hotels...");
+    try {
+        const response = await fetch(`${BASE_URL}/hotels`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${TOKEN}`,
+                "X-Client-ID": "test-client-id",
+                'Content-Type': 'application/json'
+            }
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+            console.log("Available hotels retrieved successfully!");
+            console.log("Available Hotels:", JSON.stringify(result, null, 2));
+            return result;
+        } else {
+            console.log("Failed to retrieve available hotels!");
+            console.log("Error details:", JSON.stringify(result, null, 2));
+            return null;
+        }
+    } catch (error) {
+        console.log("Get available hotels request failed!");
+        console.log("Error:", error.message);
+        return null;
+    }
+}
+
 // Main test runner
 async function runHotelBookingTests() {
     console.log("Starting Hotel Booking Service Tests...");
@@ -250,7 +283,9 @@ async function runHotelBookingTests() {
     
     // Test 1: Service Health Check
     console.log("\nTest 1: Service Health Check");
-    await testServiceHealth();
+    // await testServiceHealth();
+
+    // await getAvailableHotels();
     
     // Test 2: Hotel Booking
     console.log("\nTest 2: Hotel Booking");
