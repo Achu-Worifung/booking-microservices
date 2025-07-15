@@ -136,14 +136,17 @@ def create_access_token(data: dict):
 
 # Routes
 @app.get("/")
-def root(request: Request, _: bool = Depends(lambda req: rate_limit(req, limit=10, window=60, service="user-service"))):
+async def root(request: Request):
+    await rate_limit(request, limit=5, window=60, service="user-service")
+
     return {"message": "Welcome to the User Service!"}
 
 @app.post("/signup", status_code=status.HTTP_201_CREATED)
-def signup(user: UserCreate, request: Request, _: bool = Depends(lambda req: rate_limit(req, limit=3, window=300, service="user-service"))):
+async def signup(user: UserCreate, request: Request):
     """
     User signup endpoint with proper database connection management.
     """
+    await rate_limit(request, limit=5, window=60, service="user-service")
     try:
         with get_db_cursor() as (cursor, conn):
             # Check if user already exists
@@ -191,7 +194,8 @@ def signup(user: UserCreate, request: Request, _: bool = Depends(lambda req: rat
             conn.close()
 
 @app.post("/signin", status_code=status.HTTP_200_OK)
-def signin(user: UserLogin, request: Request, _: bool = Depends(lambda req: rate_limit(req, limit=5, window=300, service="user-service"))):
+async def signin(user: UserLogin, request: Request):
+    await rate_limit(request, limit=5, window=60, service="user-service")
     """
     User signin endpoint with proper database connection management.
     """

@@ -155,17 +155,19 @@ class Car(BaseModel):
     rating: float = Field(default=0.0, ge=0.0, le=5.0, description="Rating of the car from 0 to 5")
 
 @app.get('/')
-async def root(request: Request, _: bool = Depends(lambda req: rate_limit(req, limit=10, window=60, service="car-service"))):
+async def root(request: Request):
     """
     Root endpoint for the car availability microservice.
     """
+    await rate_limit(request, limit=10, window=60, service="car-service")
     return {"message": "Welcome to the car availability microservice!"}
 
 @app.get('/cars', response_model=List[Car])
-async def get_cars(request: Request, _: bool = Depends(lambda req: rate_limit(req, limit=5, window=60, service="car-service"))):
+async def get_cars(request: Request):
     """
     Get a list of all available cars.
     """
+    await rate_limit(request, limit=5, window=60, service="car-service")
     available_cars: List[Car] = []
     
     # Get all car types and their templates
@@ -198,10 +200,12 @@ async def get_cars(request: Request, _: bool = Depends(lambda req: rate_limit(re
     return available_cars[:20]
 
 @app.get('/cars/{car_type}', response_model=List[Car])
-async def get_cars_by_type(car_type: str, request: Request, _: bool = Depends(lambda req: rate_limit(req, limit=5, window=60, service="car-service"))):
+async def get_cars_by_type(car_type: str, request: Request):
     """
     Get a list of cars of a specific type.
     """
+    await rate_limit(request, limit=5, window=60, service="car-service")
+
     if car_type not in all_cars:
         raise HTTPException(status_code=404, detail=f"Car type '{car_type}' not found")
     
