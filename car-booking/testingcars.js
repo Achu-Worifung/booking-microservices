@@ -1,4 +1,4 @@
-const BASE_URL = 'http://127.0.0.1:8001';  // Changed to port 8001
+const BASE_URL = 'http://localhost:8001';  // Changed to port 8001
 const TEST_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMTIzNDU2NzgtMTIzNC0xMjM0LTEyMzQtMTIzNDU2Nzg5MDEyIiwiZW1haWwiOiJ0ZXN0QGV4YW1wbGUuY29tIiwiZm5hbWUiOiJKb2huIiwibG5hbWUiOiJEb2UifQ.fake-signature'; // You'll need a real token
 
 // Helper function to make requests

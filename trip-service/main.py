@@ -36,9 +36,9 @@ DB_CONFIG = {
 }
 
 # Microservice URLs
-CAR_SERVICE_URL = "http://127.0.0.1:8001"
-HOTEL_SERVICE_URL = "http://127.0.0.1:8002"
-FLIGHT_SERVICE_URL = "http://127.0.0.1:8004"  # Updated to fligh-booking service port
+CAR_SERVICE_URL = "http://localhost:8001"
+HOTEL_SERVICE_URL = "http://localhost:8002"
+FLIGHT_SERVICE_URL = "http://localhost:8004"  # Updated to fligh-booking service port
 
 def get_db_connection(CONFIG=DB_CONFIG):
     """
@@ -618,4 +618,4 @@ async def root():
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="127.0.0.1", port=8012, reload=True)
+    uvicorn.run("main:app", host="localhost", port=8012, reload=True)

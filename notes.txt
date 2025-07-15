@@ -2,7 +2,7 @@ Important Considerations:
 1. 🔒 Firewall / Network Configuration
 Ensure that the server machine's port 8001 is open on its firewall.
 
-If running on localhost (127.0.0.1), it won't be accessible from another device. Use the local LAN IP address (like 192.168.x.x).
+If running on localhost (localhost), it won't be accessible from another device. Use the local LAN IP address (like 192.168.x.x).
 
 2. 🔐 CORS (Cross-Origin Resource Sharing)
 If your frontend and backend run on different origins (e.g., ports or IPs), the backend must allow CORS.

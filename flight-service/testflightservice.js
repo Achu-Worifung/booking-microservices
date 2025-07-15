@@ -1,4 +1,4 @@
-const BASE_URL = "http://127.0.0.1:8000"; // User service port
+const BASE_URL = "http://localhost:8000"; // User service port
 
 
 async function getFlight() {

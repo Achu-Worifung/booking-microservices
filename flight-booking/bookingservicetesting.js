@@ -1,7 +1,7 @@
 // test_flight_booking.js
 // Test script for Flight Booking Service authentication
 
-const BASE_URL = "http://127.0.0.1:8006";
+const BASE_URL = "http://localhost:8006";
 const TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyaWQiOiIyM2NiYzUwZS04ZDFhLTQ5MjQtYjBlNS1iMzFhODNkNDRmYjIiLCJlbWFpbCI6ImpvaG4uZG9lQGV4YW1wbGUuY29tIn0.V4zVIh7NYP8QYNGX8BZCfbp6WtQ_CIW4lJP86G-iAv0";
 
 // Test flight data

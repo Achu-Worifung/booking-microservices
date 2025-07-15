@@ -1,4 +1,4 @@
-const BASE_URL = "http://127.0.0.1:8010"; // User service port
+const BASE_URL = "http://localhost:8010"; // User service port
 
 // Test credentials
 

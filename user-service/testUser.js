@@ -1,4 +1,4 @@
-const BASE_URL = "http://127.0.0.1:8004"; // User service port
+const BASE_URL = "http://localhost:8004"; // User service port
 
 // Test credentials
 const TEST_CREDENTIALS = {
