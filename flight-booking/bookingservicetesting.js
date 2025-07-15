@@ -43,6 +43,7 @@ async function testFlightBooking() {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${TOKEN}`,
+                "X-Client-ID": "test-client-id",
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify(testFlight)
@@ -79,6 +80,7 @@ async function testGetBooking(bookingId) {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${TOKEN}`,
+                "X-Client-ID": "test-client-id",
                 'Content-Type': 'application/json'
             }
         });
@@ -108,6 +110,7 @@ async function testDeleteBooking(bookingId) {
             method: 'DELETE',
             headers: {
                 'Authorization': `Bearer ${TOKEN}`,
+                "X-Client-ID": "test-client-id",
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Query, status, Header
+from fastapi import FastAPI, HTTPException, Depends, Query, Request, status, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, List, Literal, Dict
@@ -10,6 +10,10 @@ import psycopg2
 from dotenv import load_dotenv
 from contextlib import contextmanager
 import json
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
+
+from redis_rate_limit import rate_limit
 
 
 load_dotenv() #loading env variables
@@ -257,6 +261,7 @@ class BookingResponse(BaseModel):
 # Routes
 @app.post("/flights/book", response_model=BookingResponse)
 async def book_flight(
+    request: Request,
     flight: Flight,
     trip_id: Optional[str] = None,
     current_user: dict = Depends(get_current_user)
@@ -270,6 +275,7 @@ async def book_flight(
     
     Returns booking confirmation with user and flight details.
     """
+    await rate_limit(request, limit=5, window=60, service="flight-booking")
     flight_conn = None
     bookings_conn = None
     flight_cursor = None
@@ -322,7 +328,7 @@ async def book_flight(
                     numberseats,
                     seatprice,
                     flightdetails,
-                    tripid,
+                    trip_id,
                     created_at, 
                     updated_at
                 )
@@ -351,7 +357,7 @@ async def book_flight(
                     totalamount, 
                     created_at,
                     updated_at,
-                    tripid
+                    trip_id
                 ) VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW(), %s)
             """, (
                 booking_id,
@@ -406,6 +412,7 @@ async def book_flight(
 
 @app.get("/flights/booking/{booking_id}")
 async def get_user_booking(
+    request: Request,
     booking_id: str,
     current_user: dict = Depends(get_current_user)
 ):
@@ -416,6 +423,7 @@ async def get_user_booking(
     Path parameter:
         booking_id: The flight booking UUID (e.g., 3ac77330-cade-4add-9a8c-3e4b3ea3bb81)
     """
+    await rate_limit(request, limit=5, window=60, service="flight-booking")
     flight_conn = None
     bookings_conn = None
     flight_cursor = None
@@ -476,7 +484,8 @@ async def get_user_booking(
         
 @app.delete("/flights/delete")
 async def delete_user_booking(
-    request: DeleteBookingRequest,
+    delete_request: DeleteBookingRequest,
+    request: Request,
     current_user: dict = Depends(get_current_user)
 ):
     """
@@ -488,6 +497,7 @@ async def delete_user_booking(
         "flightid": "12345678-1234-1234-1234-123456789012"
     }
     """
+    await rate_limit(request, limit=5, window=60, service="flight-booking")
     flight_conn = None
     bookings_conn = None
     flight_cursor = None
@@ -505,7 +515,7 @@ async def delete_user_booking(
         flight_cursor.execute("""
             SELECT flightbookingid FROM flightbookings
             WHERE flightbookingid = %s AND userid = %s
-        """, (request.flightid, current_user["user_id"]))
+        """, (delete_request.flightid, current_user["user_id"]))
         
         if not flight_cursor.fetchone():
             raise HTTPException(
@@ -522,14 +532,14 @@ async def delete_user_booking(
             # Try to parse as UUID first
             try:
                 import uuid
-                uuid.UUID(request.flightid)
-                booking_id = request.flightid  # It's already a UUID
+                uuid.UUID(delete_request.flightid)
+                booking_id = delete_request.flightid  # It's already a UUID
             except ValueError:
                 # It's a booking reference, need to look it up
                 bookings_cursor.execute("""
                     SELECT bookingid FROM user_bookings 
                     WHERE booking_reference = %s AND userid = %s
-                """, (request.flightid, current_user["user_id"]))
+                """, (delete_request.flightid, current_user["user_id"]))
                 
                 result = bookings_cursor.fetchone()
                 if result:
@@ -547,7 +557,7 @@ async def delete_user_booking(
             """, (booking_id, current_user["user_id"]))
             
             # Delete from user_bookings table
-            if booking_id == request.flightid:
+            if booking_id == delete_request.flightid:
                 # flightid was already a UUID
                 bookings_cursor.execute("""
                     DELETE FROM user_bookings
@@ -558,7 +568,7 @@ async def delete_user_booking(
                 bookings_cursor.execute("""
                     DELETE FROM user_bookings
                     WHERE booking_reference = %s AND userid = %s
-                """, (request.flightid, current_user["user_id"]))
+                """, (delete_request.flightid, current_user["user_id"]))
             
             # Two-phase commit: both deletions must succeed
             flight_conn.commit()
@@ -577,7 +587,7 @@ async def delete_user_booking(
 
         return {
             "message": "Booking deleted successfully",
-            "deleted_booking_id": request.flightid,
+            "deleted_booking_id": delete_request.flightid,
             "user_id": current_user["user_id"]
         }
 
@@ -604,50 +614,6 @@ async def delete_user_booking(
         if bookings_conn:
             bookings_conn.close()
 
-# @app.get("/flights/bookings")
-# async def get_all_user_bookings(current_user: dict = Depends(get_current_user)):
-#     """
-#     Get all bookings for the authenticated user.
-#     Requires a valid JWT token in the Authorization header.
-#     """
-#     try:
-#         # Fetch all bookings from database
-#         cursor.execute("""
-#             SELECT 
-#                 flightbookingid,
-#                 numberseats,
-#                 seatprice,
-#                 bookingdatetime,
-#                 flightdetails
-#             FROM flightbookings 
-#             WHERE userid = %s 
-#             ORDER BY bookingdatetime DESC
-#         """, (current_user["user_id"],))
-        
-#         results = cursor.fetchall()
-        
-#         bookings = []
-#         for booking in results:
-#             bookings.append({
-#                 "booking_id": str(booking[0]),
-#                 "number_seats": booking[1],
-#                 "seat_price": float(booking[2]),
-#                 "booking_datetime": booking[3].isoformat() if booking[3] else None,
-#                 "flight_details": booking[4]
-#             })
-        
-#         return {
-#             "message": "User bookings retrieved successfully",
-#             "user_id": current_user["user_id"],
-#             "total_bookings": len(bookings),
-#             "bookings": bookings
-#         }
-        
-#     except Exception as e:
-#         raise HTTPException(
-#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-#             detail=f"Failed to retrieve bookings: {str(e)}"
-#         )
 
 @app.get("/")
 async def root():
