@@ -10,6 +10,7 @@ import sys
 import os
 
 import uvicorn
+from fastapi.middleware.cors import CORSMiddleware
 
 # Add shared module to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
@@ -22,6 +23,13 @@ app = FastAPI(
     description="A microservice to obtain  flight data based on provided JavaScript logic.",
     version="1.0.0",
 )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # You can restrict this in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+) 
 
 # --- Pydantic Models for Data Validation and Response ---
 

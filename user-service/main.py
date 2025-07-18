@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status, Request
+from fastapi import FastAPI, HTTPException, Depends, status, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional
@@ -33,6 +33,27 @@ DB_CONFIG = {
     "password": os.getenv("password"),
     "port": os.getenv("port")
 }
+BOOKING_CONFIG = {
+    "user": os.getenv("user"),
+    "host": os.getenv("host"),
+    "database": 'bookings',
+    "password": os.getenv("password"),
+    "port": os.getenv("port")
+}
+
+def get_booking_db_connection():
+    """
+    Create and return a new database connection for bookings.
+    """
+    try:
+        conn = psycopg2.connect(**BOOKING_CONFIG)
+        return conn
+    except Exception as e:
+        print(f"Booking database connection failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Booking database connection failed"
+        )
 
 def get_db_connection():
     """
@@ -240,6 +261,105 @@ async def signin(user: UserLogin, request: Request):
             cursor.close()
         if conn:
             conn.close()
+def get_current_user(authorization: str = Header(None)) -> dict:
+    """
+    Extract and validate user from Authorization header.
+    Expected format: "Bearer <token>"
+    """
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authorization header missing"
+        )
+    
+    try:
+        scheme, token = authorization.split()
+        if scheme.lower() != "bearer":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication scheme"
+            )
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authorization header format"
+        )
+    
+    return verify_token(token)
+def verify_token(token: str) -> dict:
+    """
+    Verify and decode JWT token.
+    Returns user data if token is valid, raises HTTPException if invalid.
+    """
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        
+        # Map the token fields to expected fields
+        # Handle both 'userid' and 'user_id' formats for compatibility
+        if 'userid' in payload and 'user_id' not in payload:
+            payload['user_id'] = payload['userid']
+        
+        # Add default values for missing fields
+        if 'fname' not in payload:
+            payload['fname'] = payload.get('email', '').split('@')[0]  # Use email prefix as default
+        if 'lname' not in payload:
+            payload['lname'] = ''  # Default empty last name
+            
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has expired"
+        )
+    except jwt.JWTError as e:
+        # For debugging, let's also try without signature verification
+        try:
+            payload = jwt.decode(token, options={"verify_signature": False})
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Invalid token signature. Token payload contains: {list(payload.keys())}"
+            )
+        except:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Invalid token: {str(e)}"
+            )
+
+# Get bookings for the authenticated user using the Authorization header
+@app.get('/bookings', status_code=status.HTTP_200_OK)
+async def get_bookings(request: Request, authorization: str = Header(None)):
+    """
+    Get user bookings endpoint. Requires Authorization header with Bearer token.
+    """
+    await rate_limit(request, limit=5, window=60, service="user-service")
+    cursor = None
+    conn = None
+    try:
+        # Extract user from token
+        current_user = get_current_user(authorization)
+        user_id = current_user['user_id']
+        conn = get_booking_db_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT * FROM user_bookings WHERE userid = %s", (user_id,))
+            bookings = cursor.fetchall()
+            # print(f"Bookings fetched for user {user_id}: {bookings}")
+            return {"bookings": bookings}
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        print(f"Error fetching bookings: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching bookings: {e}"
+        )
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+    
 
 # Run the app
 if __name__ == "__main__":

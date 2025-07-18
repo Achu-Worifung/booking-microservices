@@ -6,9 +6,9 @@ const TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyaWQiOiIyM2NiYzUwZS04
 
 // Test flight data
 const testFlight = {
-    airline: "Delta",
-    flightNumber: "DL1234",
-    departureAirport: "LAX",
+    // airline: "Delta",
+    // flightNumber: "DL1234",
+    // departureAirport: "LAX",
     destinationAirport: "JFK",
     departureTime: "2025-07-15T08:00:00",
     arrivalTime: "2025-07-15T14:30:00",

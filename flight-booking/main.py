@@ -204,7 +204,7 @@ def verify_token(token: str) -> dict:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has expired"
         )
-    except jwt.JWTError as e:
+    except jwt.PyJWTError as e:
         # For debugging, let's also try without signature verification
         try:
             payload = jwt.decode(token, options={"verify_signature": False})
