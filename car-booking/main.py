@@ -145,6 +145,7 @@ class Car(BaseModel):
     fuel_type: Literal['Petrol', 'Diesel', 'Electric', 'Hybrid']
     available: bool = True
     rating: float = Field(default=0.0, ge=0.0, le=5.0, description="Rating of the car from 0 to 5")
+    location: Optional[str] = Field(None, description="Location where the car is available")
 class carTemplate(BaseModel):
     make: str
     model: List[str]
@@ -346,8 +347,10 @@ async def book_car(
                     totalamount, 
                     created_at,
                     updated_at, 
-                    trip_id
-                ) VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW(), %s)
+                    trip_id,
+                    provider_id, 
+                    location      
+                ) VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW(), %s, %s, %s)
             """, (
                 booking_id,
                 booking_reference,
@@ -355,7 +358,10 @@ async def book_car(
                 current_user["user_id"],
                 "Car",
                 total,
-                trip_id if trip_id else None
+                trip_id if trip_id else None,
+                car.model,  # Use car model as provider_id
+                car.location
+
             ))
             
             # Two-phase commit: both transactions must succeed

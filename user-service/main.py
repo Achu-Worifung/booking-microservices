@@ -342,7 +342,9 @@ async def get_bookings(request: Request, authorization: str = Header(None)):
         cursor = conn.cursor()
         try:
             cursor.execute("SELECT * FROM user_bookings WHERE userid = %s", (user_id,))
-            bookings = cursor.fetchall()
+            columns = [desc[0] for desc in cursor.description]
+            rows = cursor.fetchall()
+            bookings = [dict(zip(columns, row)) for row in rows]
             # print(f"Bookings fetched for user {user_id}: {bookings}")
             return {"bookings": bookings}
         finally:

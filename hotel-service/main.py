@@ -436,8 +436,10 @@ async def book_hotel(
                     totalamount, 
                     created_at,
                     updated_at, 
-                    trip_id
-                ) VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW(), %s)
+                    trip_id, 
+                    provider_id,
+                    location
+                ) VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW(), %s, %s, %s)
             """, (
                 booking_id,
                 booking_reference,
@@ -445,7 +447,9 @@ async def book_hotel(
                 current_user["user_id"],
                 "Hotel",
                 total,  # totalamount
-                trip_id if trip_id else None  # trip_id (optional, can be None if not provided
+                trip_id if trip_id else None,  # trip_id (optional, can be None if not provided)
+                hotel.vendor,
+                hotel.address
             ))
             
             # Two-phase commit: both transactions must succeed

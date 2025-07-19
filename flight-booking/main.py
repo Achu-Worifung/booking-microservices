@@ -357,8 +357,10 @@ async def book_flight(
                     totalamount, 
                     created_at,
                     updated_at,
-                    trip_id
-                ) VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW(), %s)
+                    trip_id, 
+                    provider_id,
+                    location
+                ) VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW(), %s, %s, %s)
             """, (
                 booking_id,
                 booking_reference,
@@ -366,7 +368,9 @@ async def book_flight(
                 current_user["user_id"],
                 "Flight",
                 flight.prices[flight.choosenSeat],
-                trip_id if trip_id else None  # trip_id from request
+                trip_id if trip_id else None,
+                flight.airline,
+                flight.departureAirport
             ))
             
             # Two-phase commit: both transactions must succeed
