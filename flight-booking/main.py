@@ -463,9 +463,14 @@ async def get_user_booking(
                 detail="Flight details not found"
             )
         
+        # Map result to dict
+        columns = [
+            "flightbookingid", "userid", "inventoryid", "numberseats", "seatprice", "flightdetails", "tripid", "created_at", "updated_at"
+        ]
+        flight_details = dict(zip(columns, flight_result))
         return {
             "message": "User booking retrieved successfully",
-            "flight_details": flight_result
+            "flight_details": flight_details
         }
         
     except HTTPException:

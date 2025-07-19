@@ -452,9 +452,14 @@ async def get_user_booking(
                 detail="Car booking not found"
             )
         
+        # Map result to dict
+        columns = [
+            "carbookingid", "userid", "bookingdate", "bookingdetails", "paymentid", "insuranceamount", "insurancetype", "totalamount", "created_at"
+        ]
+        car_details = dict(zip(columns, car_result))
         return {
             "message": "User car booking retrieved successfully",
-            "car_details": car_result
+            "car_details": car_details
         }
         
     except HTTPException:

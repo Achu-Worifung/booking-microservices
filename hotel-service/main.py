@@ -540,9 +540,14 @@ async def get_user_booking(
                 detail="Hotel booking not found"
             )
         
+        # Map result to dict
+        columns = [
+            "hotelbookingid", "bookingreference", "userid", "bookingdate", "bookingdetails", "paymentid", "totalamount", "created_at"
+        ]
+        hotel_details = dict(zip(columns, hotel_result))
         return {
             "message": "User hotel booking retrieved successfully",
-            "hotel_details": hotel_result
+            "hotel_details": hotel_details
         }
         
     except HTTPException:

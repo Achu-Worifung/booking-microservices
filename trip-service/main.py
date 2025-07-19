@@ -576,6 +576,50 @@ async def update_trip(
         )
         conn.commit()
     return {"message": "Trip updated successfully"}
+@app.get("/trips")
+async def get_all_trips(
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get all trips for the current user.
+    """
+    await rate_limit(request, limit=5, window=60, service="trip-service")
+
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM trips WHERE userid = %s",
+            (current_user["user_id"],)
+        )
+        trips = cursor.fetchall()
+        # Map results to Trip model
+        trip_list = []
+        for trip in trips:
+            trip_data = {
+                "tripid": trip[0],
+                "userid": trip[1],
+                "tripname": trip[2],
+                "destination": trip[3],
+                "startdate": trip[4],
+                "enddate": trip[5],
+                "travelers": trip[6],
+                "budget": trip[7],
+                "trip_status": trip[8],
+                "description": trip[9],
+                "createdat": trip[10],
+                "updatedat": trip[11]
+            }
+            trip_list.append(Trip(**trip_data))
+        return {"trips": trip_list}
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 
 @app.post('/trips/saveitems/{tripid}')
@@ -614,7 +658,7 @@ async def root():
     """
     Root endpoint to check if the service is running.
     """
-    return {"message": "Trip Service is running!"}
+    return {"message": "Trip Service is running! are you sure"}
 
 
 if __name__ == "__main__":

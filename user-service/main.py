@@ -362,7 +362,121 @@ async def get_bookings(request: Request, authorization: str = Header(None)):
         if conn:
             conn.close()
     
-
+@app.post('/payment', status_code=status.HTTP_200_OK)
+async def store_payment(request: Request, authorization: str = Header(None)):
+    """
+    Store payment details endpoint. Requires Authorization header with Bearer token.
+    """
+    await rate_limit(request, limit=5, window=60, service="user-service")
+    cursor = None
+    conn = None
+    try:
+        # Extract user from token
+        current_user = get_current_user(authorization)
+        user_id = current_user['user_id']
+        conn = get_booking_db_connection()
+        cursor = conn.cursor()
+        
+        # Here you would handle the payment logic
+        # For demonstration, we will just return a success message
+        return {"message": "Payment details stored successfully", "user_id": user_id}
+    
+    except Exception as e:
+        print(f"Error storing payment details: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error storing payment details: {e}"
+        )
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+@app.get('/get_payment', status_code=status.HTTP_200_OK)
+async def get_payment(request: Request, authorization: str = Header(None)):
+    """
+    Get payment details endpoint. Requires Authorization header with Bearer token.
+    """
+    await rate_limit(request, limit=5, window=60, service="user-service")
+    cursor = None
+    conn = None
+    try:
+        # Extract user from token
+        current_user = get_current_user(authorization)
+        user_id = current_user['user_id']
+        conn = get_booking_db_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT * FROM user_payments WHERE userid = %s", (user_id,))
+            columns = [desc[0] for desc in cursor.description]
+            rows = cursor.fetchall()
+            payments = [dict(zip(columns, row)) for row in rows]
+            return {"payments": payments}
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        print(f"Error fetching payment details: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching payment details: {e}"
+        )
+@app.post('/address', status_code=status.HTTP_200_OK)
+async def store_address(request: Request, authorization: str = Header(None)):
+    """
+    Store address details endpoint. Requires Authorization header with Bearer token.
+    """
+    await rate_limit(request, limit=5, window=60, service="user-service")
+    cursor = None
+    conn = None
+    try:
+        # Extract user from token
+        current_user = get_current_user(authorization)
+        user_id = current_user['user_id']
+        conn = get_booking_db_connection()
+        cursor = conn.cursor()
+        try:
+            # Here you would handle the address storage logic
+            # For demonstration, we will just return a success message
+            return {"message": "Address details stored successfully", "user_id": user_id}
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        print(f"Error storing address details: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error storing address details: {e}"
+        )
+@app.get('/get_address', status_code=status.HTTP_200_OK)
+async def get_address(request: Request, authorization: str = Header(None)):
+    """
+    Get address details endpoint. Requires Authorization header with Bearer token.
+    """
+    await rate_limit(request, limit=5, window=60, service="user-service")
+    cursor = None
+    conn = None
+    try:
+        # Extract user from token
+        current_user = get_current_user(authorization)
+        user_id = current_user['user_id']
+        conn = get_booking_db_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT * FROM user_addresses WHERE userid = %s", (user_id,))
+            columns = [desc[0] for desc in cursor.description]
+            rows = cursor.fetchall()
+            addresses = [dict(zip(columns, row)) for row in rows]
+            return {"addresses": addresses}
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        print(f"Error fetching address details: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching address details: {e}"
+        )
 # Run the app
 if __name__ == "__main__":
     uvicorn.run("main:app", host="localhost", port=8004, reload=True)
