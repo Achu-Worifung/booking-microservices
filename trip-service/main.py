@@ -1,3 +1,4 @@
+from urllib import response
 from fastapi import FastAPI, HTTPException, Depends, Query, status, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field 
@@ -55,18 +56,13 @@ def get_db_connection(CONFIG=DB_CONFIG):
         )
 
 class Trip(BaseModel):
-    tripid: uuid.UUID
-    userid: uuid.UUID
     tripname: str
     destination: str
-    startdate: datetime.date
-    enddate: datetime.date
+    startDate: datetime.date
+    endDate: datetime.date
     travelers: int
     budget: float
-    trip_status: str
     description: str
-    createdat: datetime.datetime
-    updatedat: datetime.datetime
 
 class TripBookingRequest(BaseModel):
     car: Optional[Car] = None
@@ -305,7 +301,7 @@ async def cancel_booking(service_url: str, booking_id: str, token: str) -> bool:
         print(f"Failed to cancel booking {booking_id}: {str(e)}")
         return False
 
-@app.post("/trips/book/{tripid}")
+@app.post("/trips/book/{tripid}", status_code=status.HTTP_201_CREATED)
 async def book_trip_items(
     tripid: uuid.UUID,
     booking_request: TripBookingRequest,
@@ -488,7 +484,7 @@ async def book_trip_items(
             detail=error_message
         )
 
-@app.post("/trips/create")
+@app.post("/trips/create", status_code=status.HTTP_201_CREATED)
 async def create_trip(
     trip: Trip,
     request: Request,
@@ -506,11 +502,12 @@ async def create_trip(
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             RETURNING tripid
             """,
-            (current_user["user_id"], trip.tripname, trip.destination, trip.startdate, trip.enddate, trip.travelers, trip.budget, trip.trip_status, trip.description)
+            (current_user["user_id"], trip.tripname, trip.destination, trip.startDate, trip.endDate, trip.travelers, trip.budget, "Planning", trip.description)
         )
         tripid = cursor.fetchone()[0]
         conn.commit()
-    return {"tripid": tripid}
+    return {response.status_code: status.HTTP_201_CREATED,
+        "tripid": tripid}
 
 @app.delete("/trips/delete/{tripid}")
 async def delete_trip(
