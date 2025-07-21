@@ -236,5 +236,35 @@ async def get_cars_by_type(car_type: str, request: Request):
     return available_cars
 
 
+
+# --- Car Bookings Endpoint ---
+class CarBooking(BaseModel):
+    booking_id: str = Field(default_factory=lambda: str(uuid.uuid4()), alias="_id")
+    car_id: str
+    user_id: str
+    start_date: datetime.date
+    end_date: datetime.date
+    status: Literal['confirmed', 'pending', 'cancelled'] = 'pending'
+
+# In-memory bookings store (for demo)
+car_bookings: List[CarBooking] = []
+
+@app.post('/bookings', response_model=CarBooking)
+async def create_booking(booking: CarBooking, request: Request):
+    """
+    Create a new car booking.
+    """
+    await rate_limit(request, limit=5, window=60, service="car-service")
+    car_bookings.append(booking)
+    return booking
+
+@app.get('/bookings', response_model=List[CarBooking])
+async def get_bookings(request: Request):
+    """
+    Get all car bookings.
+    """
+    await rate_limit(request, limit=5, window=60, service="car-service")
+    return car_bookings
+
 if __name__ == "__main__":
     uvicorn.run("main:app", host="localhost", port=8010, reload=True)
