@@ -1,7 +1,8 @@
-from fastapi import FastAPI, HTTPException, Depends, status, Request, Header
+
+from fastapi import FastAPI, HTTPException, Depends, status, Request, Header, Body
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Dict
 import uvicorn
 import uuid
 import jwt
@@ -11,7 +12,20 @@ from passlib.context import CryptContext
 import psycopg2
 from contextlib import contextmanager
 import sys
+class AddressModel(BaseModel):
+    country: str
+    state: str
+    city: str
+    street: str
+    zipCode: str
 
+class PaymentModel(BaseModel):
+    cardNumber: str
+    expiryDate: str
+    cvv: str
+    cardType: str
+    isDefault: bool = False
+    cardHolderName: str
 # Add shared module to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 from redis_rate_limit import rate_limit
@@ -362,25 +376,32 @@ async def get_bookings(request: Request, authorization: str = Header(None)):
         if conn:
             conn.close()
     
+
 @app.post('/payment', status_code=status.HTTP_200_OK)
-async def store_payment(request: Request, authorization: str = Header(None)):
+async def store_payment(payment: Dict = Body(...), authorization: str = Header(None), request: Request = None):
     """
     Store payment details endpoint. Requires Authorization header with Bearer token.
     """
-    await rate_limit(request, limit=5, window=60, service="user-service")
+    # print("here is the payment ", payment)
+    # await rate_limit(request, limit=5, window=60, service="user-service")
+    print("🔹 Raw payment dict received:", payment)  # <-- Just print it
+
     cursor = None
     conn = None
     try:
-        # Extract user from token
         current_user = get_current_user(authorization)
         user_id = current_user['user_id']
-        conn = get_booking_db_connection()
+        conn = get_db_connection()
         cursor = conn.cursor()
-        
-        # Here you would handle the payment logic
-        # For demonstration, we will just return a success message
+        cursor.execute(
+            """
+            INSERT INTO card_info (userid, card_number, exp_date, card_cvv, holder_name, is_default)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (user_id, payment['cardNumber'], payment['expiryDate'], payment['cvv'], payment['cardHolderName'], payment['isDefault'])
+        )
+        conn.commit()
         return {"message": "Payment details stored successfully", "user_id": user_id}
-    
     except Exception as e:
         print(f"Error storing payment details: {e}")
         raise HTTPException(
@@ -401,28 +422,34 @@ async def get_payment(request: Request, authorization: str = Header(None)):
     cursor = None
     conn = None
     try:
-        # Extract user from token
         current_user = get_current_user(authorization)
         user_id = current_user['user_id']
-        conn = get_booking_db_connection()
+        conn = get_db_connection()
         cursor = conn.cursor()
-        try:
-            cursor.execute("SELECT * FROM user_payments WHERE userid = %s", (user_id,))
-            columns = [desc[0] for desc in cursor.description]
-            rows = cursor.fetchall()
-            payments = [dict(zip(columns, row)) for row in rows]
-            return {"payments": payments}
-        finally:
-            cursor.close()
-            conn.close()
+        cursor.execute(
+            """
+            SELECT * FROM public.card_info WHERE userid = %s
+            """,
+            (user_id,)
+        )
+        columns = [desc[0] for desc in cursor.description]
+        rows = cursor.fetchall()
+        payments = [dict(zip(columns, row)) for row in rows]
+        return {"payments": payments}
     except Exception as e:
         print(f"Error fetching payment details: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Error fetching payment details: {e}"
         )
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
 @app.post('/address', status_code=status.HTTP_200_OK)
-async def store_address(request: Request, authorization: str = Header(None)):
+async def store_address(address: AddressModel = Body(...), authorization: str = Header(None), request: Request = None):
     """
     Store address details endpoint. Requires Authorization header with Bearer token.
     """
@@ -430,24 +457,63 @@ async def store_address(request: Request, authorization: str = Header(None)):
     cursor = None
     conn = None
     try:
-        # Extract user from token
         current_user = get_current_user(authorization)
         user_id = current_user['user_id']
-        conn = get_booking_db_connection()
+        conn = get_db_connection()
         cursor = conn.cursor()
-        try:
-            # Here you would handle the address storage logic
-            # For demonstration, we will just return a success message
-            return {"message": "Address details stored successfully", "user_id": user_id}
-        finally:
-            cursor.close()
-            conn.close()
+        cursor.execute(
+            """
+            INSERT INTO address_info (userid, country, state, city, street, zipcode)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (user_id, address.country, address.state, address.city, address.street, address.zipCode)
+        )
+        conn.commit()
+        return {"message": "Address details stored successfully", "user_id": user_id}
     except Exception as e:
         print(f"Error storing address details: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Error storing address details: {e}"
         )
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+@app.delete('delete/payment/{payment_id}', status_code=status.HTTP_200_OK)
+async def delete_payment(payment_id: str, authorization: str = Header(None), request: Request = None):
+    """
+    Delete payment details endpoint. Requires Authorization header with Bearer token.
+    """
+    await rate_limit(request, limit=5, window=60, service="user-service")
+    cursor = None
+    conn = None
+    try:
+        current_user = get_current_user(authorization)
+        user_id = current_user['user_id']
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM card_info WHERE userid = %s AND card_id = %s",
+            (user_id, payment_id)
+        )
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Payment not found")
+        conn.commit()
+        return {"message": "Payment details deleted successfully"}
+    except Exception as e:
+        print(f"Error deleting payment details: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error deleting payment details: {e}"
+        )
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 @app.get('/get_address', status_code=status.HTTP_200_OK)
 async def get_address(request: Request, authorization: str = Header(None)):
     """
@@ -457,26 +523,26 @@ async def get_address(request: Request, authorization: str = Header(None)):
     cursor = None
     conn = None
     try:
-        # Extract user from token
         current_user = get_current_user(authorization)
         user_id = current_user['user_id']
-        conn = get_booking_db_connection()
+        conn = get_db_connection()
         cursor = conn.cursor()
-        try:
-            cursor.execute("SELECT * FROM user_addresses WHERE userid = %s", (user_id,))
-            columns = [desc[0] for desc in cursor.description]
-            rows = cursor.fetchall()
-            addresses = [dict(zip(columns, row)) for row in rows]
-            return {"addresses": addresses}
-        finally:
-            cursor.close()
-            conn.close()
+        cursor.execute("SELECT * FROM address_info WHERE userid = %s", (user_id,))
+        columns = [desc[0] for desc in cursor.description]
+        rows = cursor.fetchall()
+        addresses = [dict(zip(columns, row)) for row in rows]
+        return {"addresses": addresses}
     except Exception as e:
         print(f"Error fetching address details: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Error fetching address details: {e}"
         )
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 # Run the app
 if __name__ == "__main__":
     uvicorn.run("main:app", host="localhost", port=8004, reload=True)
